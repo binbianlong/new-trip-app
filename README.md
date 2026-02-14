@@ -4,8 +4,8 @@ React Native (Expo) を使用した旅行アプリです。
 
 ## 前提条件
 
-- **Node.js** 20.20.0（推奨）
-- **npm** >= 10
+- **Node.js** 20.20.0
+- **npm** 10.8.2
 - **Git**
 
 > **Node.jsのバージョン管理**: nvm/nodenv/asdf等を使用している場合、`.nvmrc` / `.node-version` ファイルに基づいて自動的にバージョンが切り替わります。
@@ -22,9 +22,12 @@ nvm を使って Node.js 20 を入れます。
 nvm install 20
 nvm use 20
 node --version
+npm --version
 ```
 
-`v20.x.x` が出れば OK。
+`v20.x.x` と `10.8.2` が出れば OK。
+
+> Node.js 20.20.0 には npm 10.8.2 が付属しています。
 
 #### nvm がインストールされていない場合
 
@@ -58,7 +61,8 @@ cd new-trip-app
 ### 2. 依存パッケージをインストール
 
 ```bash
-npm install
+np**注意**: `.npmrc` により `engine-strict=true` が設定されているため、Node.js/npm のバージョンが package.json の `engines` フィールドと一致しない場合、インストールが失敗します。  
+> m install
 ```
 
 > `npm install` を実行すると、`prepare` スクリプトにより Husky の Git フックが自動的にセットアップされます。
