@@ -4,11 +4,47 @@ React Native (Expo) を使用した旅行アプリです。
 
 ## 前提条件
 
-- **Node.js** >= 20
+- **Node.js** 20.20.0（推奨）
 - **npm** >= 10
 - **Git**
 
+> **Node.jsのバージョン管理**: nvm/nodenv/asdf等を使用している場合、`.nvmrc` / `.node-version` ファイルに基づいて自動的にバージョンが切り替わります。
+
 ## 環境構築手順
+
+### 0. Node.js のセットアップ
+
+#### nvm で Node.js 20 をインストール
+
+nvm を使って Node.js 20 を入れます。
+
+```bash
+nvm install 20
+nvm use 20
+node --version
+```
+
+`v20.x.x` が出れば OK。
+
+#### nvm がインストールされていない場合
+
+**1) nvm をインストール**
+
+ターミナルで以下を実行：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+```
+
+**2) ターミナルを再起動して確認**
+
+```bash
+nvm -v
+```
+
+バージョンが表示されれば成功です。その後、上記の「nvm で Node.js 20 をインストール」手順を実行してください。
+
+---
 
 ### 1. リポジトリをクローン
 
@@ -16,6 +52,8 @@ React Native (Expo) を使用した旅行アプリです。
 git clone <リポジトリURL>
 cd new-trip-app
 ```
+
+> **Node.jsバージョンの確認**: nvm使用者は `nvm use` でバージョンを切り替えてください。
 
 ### 2. 依存パッケージをインストール
 
