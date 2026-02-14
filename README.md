@@ -70,7 +70,7 @@ npm install
 ```env
 # Supabase 設定
 EXPO_PUBLIC_SUPABASE_URL=https://gpkufxnxkbtdqdwjviir.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_sFX0FLN1HCOb4B3WleLLkQ_LHeofU02
+EXPO_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
 > **参考**: `.env.example` ファイルをコピーして `.env` を作成できます。  
