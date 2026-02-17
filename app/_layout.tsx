@@ -1,0 +1,23 @@
+import { Stack } from "expo-router";
+
+// ルートレイアウト (Stack)
+export default function RootLayout() {
+	return (
+		<Stack screenOptions={{ headerShown: false }}>
+			<Stack.Screen name="(tabs)" />
+			<Stack.Screen name="login" options={{ headerShown: false }} />
+			<Stack.Screen
+				name="onboarding"
+				options={{ headerShown: true, title: "ユーザー情報入力" }}
+			/>
+			<Stack.Screen
+				name="create"
+				options={{ headerShown: true, title: "旅行プラン作成" }}
+			/>
+			<Stack.Screen
+				name="trip/[id]"
+				options={{ headerShown: true, title: "旅行プラン詳細" }}
+			/>
+		</Stack>
+	);
+}
