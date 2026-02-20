@@ -11,6 +11,7 @@ import {
 	View,
 } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
 import {
 	mockPhotos,
@@ -62,6 +63,7 @@ function getCenterOfPhotos(
 }
 
 export default function MapScreen() {
+	const insets = useSafeAreaInsets();
 	const mapRef = useRef<MapView>(null);
 	const photoListRef = useRef<FlatList<Photo>>(null);
 
@@ -375,7 +377,7 @@ export default function MapScreen() {
 
 			{/* 上部オーバーレイ: 旅行情報 */}
 			{selectedTrip && (
-				<View style={styles.tripInfoOverlay}>
+				<View style={[styles.tripInfoOverlay, { top: insets.top + 12 }]}>
 					<View style={styles.tripInfoRow}>
 						<View
 							style={[
