@@ -1,4 +1,4 @@
-import type { Trip, TripMember, User } from "../types";
+import type { Photo, Trip, TripMember, User } from "../types";
 
 // モックユーザーデータ
 export const mockUsers: User[] = [
@@ -162,6 +162,185 @@ export const mockTrips: Trip[] = [
 		owner_user_id: "user-1",
 		created_at: "2026-02-15T00:00:00Z",
 		updated_at: "2026-02-15T00:00:00Z",
+		deleted_at: null,
+	},
+];
+
+// モック写真データ
+export const mockPhotos: Photo[] = [
+	// 沖縄旅行 (trip-1)
+	{
+		id: 101,
+		user_id: "user-1",
+		trip_id: "trip-1",
+		image_url:
+			"https://images.unsplash.com/photo-1590766956216-a92958ed13b5?w=400",
+		lat: 26.6938,
+		lng: 127.8787,
+		created_at: "2026-03-01T09:00:00Z",
+		updated_at: "2026-03-01T09:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 102,
+		user_id: "user-1",
+		trip_id: "trip-1",
+		image_url:
+			"https://images.unsplash.com/photo-1592364395653-83e648b20cc2?w=400",
+		lat: 26.2172,
+		lng: 127.7192,
+		created_at: "2026-03-02T11:00:00Z",
+		updated_at: "2026-03-02T11:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 103,
+		user_id: "user-2",
+		trip_id: "trip-1",
+		image_url:
+			"https://images.unsplash.com/photo-1542640244-7e672d6cef4e?w=400",
+		lat: 26.2135,
+		lng: 127.6861,
+		created_at: "2026-03-03T14:00:00Z",
+		updated_at: "2026-03-03T14:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 104,
+		user_id: "user-1",
+		trip_id: "trip-1",
+		image_url:
+			"https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=400",
+		lat: 26.6481,
+		lng: 127.8762,
+		created_at: "2026-03-04T10:30:00Z",
+		updated_at: "2026-03-04T10:30:00Z",
+		deleted_at: null,
+	},
+
+	// 北海道スキー (trip-2)
+	{
+		id: 201,
+		user_id: "user-1",
+		trip_id: "trip-2",
+		image_url:
+			"https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=400",
+		lat: 42.8103,
+		lng: 140.6861,
+		created_at: "2026-03-15T09:00:00Z",
+		updated_at: "2026-03-15T09:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 202,
+		user_id: "user-3",
+		trip_id: "trip-2",
+		image_url:
+			"https://images.unsplash.com/photo-1520209268518-aec60b8bb5ca?w=400",
+		lat: 42.901,
+		lng: 140.7558,
+		created_at: "2026-03-16T13:00:00Z",
+		updated_at: "2026-03-16T13:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 203,
+		user_id: "user-1",
+		trip_id: "trip-2",
+		image_url:
+			"https://images.unsplash.com/photo-1605649487212-47bdab064df7?w=400",
+		lat: 43.1907,
+		lng: 140.9938,
+		created_at: "2026-03-17T15:00:00Z",
+		updated_at: "2026-03-17T15:00:00Z",
+		deleted_at: null,
+	},
+
+	// 京都散策 (trip-3)
+	{
+		id: 301,
+		user_id: "user-2",
+		trip_id: "trip-3",
+		image_url:
+			"https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=400",
+		lat: 34.9948,
+		lng: 135.785,
+		created_at: "2026-04-01T10:00:00Z",
+		updated_at: "2026-04-01T10:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 302,
+		user_id: "user-2",
+		trip_id: "trip-3",
+		image_url:
+			"https://images.unsplash.com/photo-1580519542036-c47de6196ba5?w=400",
+		lat: 35.0094,
+		lng: 135.6729,
+		created_at: "2026-04-02T09:00:00Z",
+		updated_at: "2026-04-02T09:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 303,
+		user_id: "user-2",
+		trip_id: "trip-3",
+		image_url:
+			"https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=400",
+		lat: 35.0394,
+		lng: 135.7292,
+		created_at: "2026-04-02T14:00:00Z",
+		updated_at: "2026-04-02T14:00:00Z",
+		deleted_at: null,
+	},
+
+	// 東京観光 (trip-4)
+	{
+		id: 401,
+		user_id: "user-1",
+		trip_id: "trip-4",
+		image_url:
+			"https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=400",
+		lat: 35.7101,
+		lng: 139.8107,
+		created_at: "2026-05-10T10:00:00Z",
+		updated_at: "2026-05-10T10:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 402,
+		user_id: "user-2",
+		trip_id: "trip-4",
+		image_url:
+			"https://images.unsplash.com/photo-1503899036084-c55cdd92da26?w=400",
+		lat: 35.7147,
+		lng: 139.7967,
+		created_at: "2026-05-10T13:00:00Z",
+		updated_at: "2026-05-10T13:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 403,
+		user_id: "user-3",
+		trip_id: "trip-4",
+		image_url:
+			"https://images.unsplash.com/photo-1536098561742-ca998e48cbcc?w=400",
+		lat: 35.7141,
+		lng: 139.7774,
+		created_at: "2026-05-11T11:00:00Z",
+		updated_at: "2026-05-11T11:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: 404,
+		user_id: "user-1",
+		trip_id: "trip-4",
+		image_url:
+			"https://images.unsplash.com/photo-1542051841857-5f90071e7989?w=400",
+		lat: 35.658,
+		lng: 139.7016,
+		created_at: "2026-05-11T16:00:00Z",
+		updated_at: "2026-05-11T16:00:00Z",
 		deleted_at: null,
 	},
 ];
