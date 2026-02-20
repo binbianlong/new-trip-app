@@ -37,7 +37,7 @@ export const mockUsers: User[] = [
 // モック旅行メンバーデータ
 export const mockTripMembers: TripMember[] = [
 	{
-		id: "member-1",
+		id: 1,
 		trip_id: "trip-1",
 		user_id: "user-1",
 		joined_at: "2026-02-01T00:00:00Z",
@@ -46,7 +46,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-2",
+		id: 2,
 		trip_id: "trip-1",
 		user_id: "user-2",
 		joined_at: "2026-02-01T00:00:00Z",
@@ -55,7 +55,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-3",
+		id: 3,
 		trip_id: "trip-2",
 		user_id: "user-1",
 		joined_at: "2026-02-05T00:00:00Z",
@@ -64,7 +64,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-4",
+		id: 4,
 		trip_id: "trip-2",
 		user_id: "user-3",
 		joined_at: "2026-02-05T00:00:00Z",
@@ -73,7 +73,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-5",
+		id: 5,
 		trip_id: "trip-3",
 		user_id: "user-2",
 		joined_at: "2026-02-10T00:00:00Z",
@@ -82,7 +82,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-6",
+		id: 6,
 		trip_id: "trip-4",
 		user_id: "user-1",
 		joined_at: "2026-02-15T00:00:00Z",
@@ -91,7 +91,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-7",
+		id: 7,
 		trip_id: "trip-4",
 		user_id: "user-2",
 		joined_at: "2026-02-15T00:00:00Z",
@@ -100,7 +100,7 @@ export const mockTripMembers: TripMember[] = [
 		deleted_at: null,
 	},
 	{
-		id: "member-8",
+		id: 8,
 		trip_id: "trip-4",
 		user_id: "user-3",
 		joined_at: "2026-02-15T00:00:00Z",
@@ -119,7 +119,8 @@ export const mockTrips: Trip[] = [
 		end_date: "2026-03-05",
 		status: "planned",
 		memo: "美ら海水族館に行きたい",
-		owner_id: "user-1",
+		owner_id: 1,
+		owner_user_id: "user-1",
 		created_at: "2026-02-01T00:00:00Z",
 		updated_at: "2026-02-01T00:00:00Z",
 		deleted_at: null,
@@ -131,7 +132,8 @@ export const mockTrips: Trip[] = [
 		end_date: "2026-03-18",
 		status: "planned",
 		memo: "ニセコでパウダースノーを楽しむ",
-		owner_id: "user-1",
+		owner_id: 1,
+		owner_user_id: "user-1",
 		created_at: "2026-02-05T00:00:00Z",
 		updated_at: "2026-02-05T00:00:00Z",
 		deleted_at: null,
@@ -143,7 +145,8 @@ export const mockTrips: Trip[] = [
 		end_date: "2026-04-03",
 		status: "planned",
 		memo: "桜の季節に清水寺や嵐山を観光",
-		owner_id: "user-2",
+		owner_id: 2,
+		owner_user_id: "user-2",
 		created_at: "2026-02-10T00:00:00Z",
 		updated_at: "2026-02-10T00:00:00Z",
 		deleted_at: null,
@@ -155,7 +158,8 @@ export const mockTrips: Trip[] = [
 		end_date: "2026-05-12",
 		status: "planned",
 		memo: "スカイツリーと浅草を巡る",
-		owner_id: "user-1",
+		owner_id: 1,
+		owner_user_id: "user-1",
 		created_at: "2026-02-15T00:00:00Z",
 		updated_at: "2026-02-15T00:00:00Z",
 		deleted_at: null,
