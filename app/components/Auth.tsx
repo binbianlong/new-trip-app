@@ -1,4 +1,5 @@
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
 	Alert,
@@ -14,6 +15,7 @@ export default function Auth() {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [loading, setLoading] = useState(false);
+	const router = useRouter();
 
 	// Expo用のリダイレクトURLを取得
 	const redirectTo = Linking.createURL("/");
@@ -32,16 +34,24 @@ export default function Auth() {
 	async function signUpWithEmail() {
 		setLoading(true);
 		const {
-			data: { session, user },
+			data: { session },
 			error,
 		} = await supabase.auth.signUp({
 			email: email,
 			password: password,
 		});
 
-		if (error) Alert.alert(error.message);
-		if (!session)
+		if (error) {
+			Alert.alert(error.message);
+			setLoading(false);
+			return;
+		}
+
+		if (session) {
+			router.replace("/profile-setup");
+		} else {
 			Alert.alert("Please check your inbox for email verification!");
+		}
 		setLoading(false);
 	}
 
