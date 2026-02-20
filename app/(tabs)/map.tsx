@@ -194,6 +194,31 @@ export default function MapScreen() {
 		setFocusedPhotoId(null);
 	}, []);
 
+	/** 全旅行が収まるようにマップを縮小 */
+	const handleFitAllTrips = useCallback(() => {
+		const positions = Object.values(tripPositions);
+		if (positions.length === 0) {
+			mapRef.current?.animateToRegion(JAPAN_REGION, 600);
+			return;
+		}
+		const lats = positions.map((p) => p.latitude);
+		const lngs = positions.map((p) => p.longitude);
+		const minLat = Math.min(...lats);
+		const maxLat = Math.max(...lats);
+		const minLng = Math.min(...lngs);
+		const maxLng = Math.max(...lngs);
+		const padding = 1.5;
+		mapRef.current?.animateToRegion(
+			{
+				latitude: (minLat + maxLat) / 2,
+				longitude: (minLng + maxLng) / 2,
+				latitudeDelta: Math.max(maxLat - minLat + padding, 2),
+				longitudeDelta: Math.max(maxLng - minLng + padding, 2),
+			},
+			600,
+		);
+	}, [tripPositions]);
+
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
 			if (viewableItems.length === 0) return;
@@ -438,6 +463,17 @@ export default function MapScreen() {
 						</View>
 					)}
 				</View>
+			)}
+
+			{/* 全旅行表示ボタン（旅行未選択時のみ表示） */}
+			{!selectedTrip && trips.length > 0 && (
+				<TouchableOpacity
+					style={[styles.fitAllButton, { bottom: insets.bottom + 16 }]}
+					onPress={handleFitAllTrips}
+					activeOpacity={0.8}
+				>
+					<Ionicons name="contract-outline" size={20} color={Colors.white} />
+				</TouchableOpacity>
 			)}
 
 			{/* 下部パネル: 写真のみ */}
@@ -713,6 +749,23 @@ const styles = StyleSheet.create({
 	noPhotosText: {
 		fontSize: 13,
 		color: Colors.grayLight,
+	},
+
+	/* 全旅行表示ボタン */
+	fitAllButton: {
+		position: "absolute",
+		right: 16,
+		width: 44,
+		height: 44,
+		borderRadius: 22,
+		backgroundColor: Colors.primary,
+		justifyContent: "center",
+		alignItems: "center",
+		shadowColor: Colors.black,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.3,
+		shadowRadius: 6,
+		elevation: 6,
 	},
 
 	/* 未選択 */
