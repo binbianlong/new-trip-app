@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
+	FlatList,
 	Image,
 	Pressable,
 	StyleSheet,
@@ -54,13 +55,29 @@ export default function ActiveTripScreen() {
 					.from("photos")
 					.select("*")
 					.eq("trip_id", tripId)
-					.is("deleted_at", null)
 					.order("created_at", { ascending: true }),
 			]);
 
 			if (tripResult.data) {
 				setTrip(tripResult.data);
 			}
+
+			if (photosResult.error) {
+				console.error("Photos fetch error:", photosResult.error);
+			}
+			console.log(
+				"Photos fetched:",
+				photosResult.data?.length ?? 0,
+				"items",
+				JSON.stringify(
+					photosResult.data?.map((p) => ({
+						id: p.id,
+						lat: p.lat,
+						lng: p.lng,
+						image_url: p.image_url?.substring(0, 60),
+					})),
+				),
+			);
 			setPhotos(photosResult.data ?? []);
 
 			const userIds = (membersResult.data ?? [])
@@ -144,7 +161,16 @@ export default function ActiveTripScreen() {
 			}
 
 			await fetchTripData();
-			Alert.alert("保存完了", "写真を保存しました");
+
+			mapRef.current?.animateToRegion(
+				{
+					latitude: lat,
+					longitude: lng,
+					latitudeDelta: 0.005,
+					longitudeDelta: 0.005,
+				},
+				500,
+			);
 		},
 		[tripId, fetchTripData],
 	);
@@ -300,6 +326,43 @@ export default function ActiveTripScreen() {
 				)}
 			</SafeAreaView>
 
+			{/* 写真サムネイル一覧 */}
+			{photos.length > 0 && (
+				<View style={styles.thumbnailStrip}>
+					<Text style={styles.photoCount}>{photos.length}枚の写真</Text>
+					<FlatList
+						data={photos}
+						horizontal
+						keyExtractor={(item) => String(item.id)}
+						showsHorizontalScrollIndicator={false}
+						contentContainerStyle={styles.thumbnailList}
+						renderItem={({ item }) => (
+							<Pressable
+								style={styles.thumbnailItem}
+								onPress={() => {
+									if (item.lat != null && item.lng != null) {
+										mapRef.current?.animateToRegion(
+											{
+												latitude: item.lat,
+												longitude: item.lng,
+												latitudeDelta: 0.005,
+												longitudeDelta: 0.005,
+											},
+											500,
+										);
+									}
+								}}
+							>
+								<Image
+									source={{ uri: item.image_url ?? "" }}
+									style={styles.thumbnailImage}
+								/>
+							</Pressable>
+						)}
+					/>
+				</View>
+			)}
+
 			{/* 下部フローティングボタン */}
 			<View style={styles.bottomActions}>
 				<Pressable style={styles.endButton} onPress={handleEndTrip}>
@@ -449,11 +512,49 @@ const styles = StyleSheet.create({
 		opacity: 0.5,
 	},
 
+	/* 写真サムネイル一覧 */
+	thumbnailStrip: {
+		position: "absolute",
+		bottom: 160,
+		left: 0,
+		right: 0,
+		backgroundColor: "rgba(255,255,255,0.92)",
+		paddingVertical: 8,
+	},
+	photoCount: {
+		fontSize: 12,
+		fontWeight: "600",
+		color: Colors.gray,
+		paddingHorizontal: 16,
+		marginBottom: 4,
+	},
+	thumbnailList: {
+		paddingHorizontal: 12,
+		gap: 8,
+	},
+	thumbnailItem: {
+		width: 56,
+		height: 56,
+		borderRadius: 8,
+		overflow: "hidden",
+		borderWidth: 2,
+		borderColor: Colors.white,
+		shadowColor: Colors.black,
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.15,
+		shadowRadius: 2,
+		elevation: 2,
+	},
+	thumbnailImage: {
+		width: "100%",
+		height: "100%",
+	},
+
 	/* 写真ピン */
 	photoPin: {
-		width: 34,
-		height: 34,
-		borderRadius: 17,
+		width: 52,
+		height: 52,
+		borderRadius: 26,
 		overflow: "hidden",
 		borderWidth: 3,
 		borderColor: Colors.white,
@@ -467,8 +568,8 @@ const styles = StyleSheet.create({
 		elevation: 4,
 	},
 	photoPinImage: {
-		width: 28,
-		height: 28,
-		borderRadius: 14,
+		width: 46,
+		height: 46,
+		borderRadius: 23,
 	},
 });

@@ -39,30 +39,26 @@ export async function fetchTrips(): Promise<void> {
 		data: { user },
 	} = await supabase.auth.getUser();
 	if (!user) {
-		console.log("[fetchTrips] No authenticated user");
 		trips = [];
 		notify();
 		return;
 	}
-	console.log("[fetchTrips] user.id:", user.id);
 
-	const { data: memberRows, error: memberError } = await supabase
+	const { data: memberRows } = await supabase
 		.from("trip_members")
 		.select("trip_id")
 		.eq("user_id", user.id)
 		.is("deletead_at", null);
-	console.log("[fetchTrips] trip_members:", memberRows, "error:", memberError);
 
 	const tripIds = (memberRows ?? [])
 		.map((r) => r.trip_id)
 		.filter((id): id is string => id != null);
 
-	const { data: ownedTrips, error: ownedError } = await supabase
+	const { data: ownedTrips } = await supabase
 		.from("trips")
 		.select("*")
 		.eq("owner_user_id", user.id)
 		.is("deleted_at", null);
-	console.log("[fetchTrips] ownedTrips:", ownedTrips, "error:", ownedError);
 
 	const ownedIds = new Set((ownedTrips ?? []).map((t) => t.id));
 	const memberOnlyIds = tripIds.filter((id) => !ownedIds.has(id));
