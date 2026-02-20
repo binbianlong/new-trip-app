@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -15,9 +16,8 @@ import {
 import MapView, { Marker, type Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
-import { mockTripMembers, mockTrips, mockUsers } from "../../src/data/mock";
 import { supabase } from "../../src/lib/supabase";
-import { updateTripStatus } from "../../src/store/tripStore";
+import { fetchTrips, updateTripStatus } from "../../src/store/tripStore";
 import type { Photo, Trip, User } from "../../src/types";
 
 const JAPAN_REGION: Region = {
@@ -38,14 +38,18 @@ export default function ActiveTripScreen() {
 	const [loading, setLoading] = useState(true);
 	const [isSaving, setIsSaving] = useState(false);
 
-	// --- データ取得（Supabase → モックデータのフォールバック） ---
+	// --- データ取得（Supabase） ---
 	const fetchTripData = useCallback(async () => {
 		if (!tripId) return;
 
 		try {
 			const [tripResult, membersResult, photosResult] = await Promise.all([
 				supabase.from("trips").select("*").eq("id", tripId).single(),
-				supabase.from("trip_members").select("user_id").eq("trip_id", tripId),
+				supabase
+					.from("trip_members")
+					.select("user_id")
+					.eq("trip_id", tripId)
+					.is("deletead_at", null),
 				supabase
 					.from("photos")
 					.select("*")
@@ -56,42 +60,22 @@ export default function ActiveTripScreen() {
 
 			if (tripResult.data) {
 				setTrip(tripResult.data);
-				setPhotos(photosResult.data ?? []);
-
-				const userIds = (membersResult.data ?? [])
-					.map((m) => m.user_id)
-					.filter((id): id is string => id != null);
-
-				if (userIds.length > 0) {
-					const { data: users } = await supabase
-						.from("users")
-						.select("*")
-						.in("id", userIds);
-					setParticipants(users ?? []);
-				}
-			} else {
-				// Supabase にデータがない場合はモックデータにフォールバック
-				const mockTrip = mockTrips.find((t) => t.id === tripId);
-				if (mockTrip) {
-					setTrip({ ...mockTrip, status: "started" });
-					const mockParticipants = mockTripMembers
-						.filter((m) => m.trip_id === tripId)
-						.map((m) => mockUsers.find((u) => u.id === m.user_id))
-						.filter((u): u is User => u != null);
-					setParticipants(mockParticipants);
-				}
 			}
-		} catch {
-			// ネットワークエラー時もモックデータにフォールバック
-			const mockTrip = mockTrips.find((t) => t.id === tripId);
-			if (mockTrip) {
-				setTrip({ ...mockTrip, status: "started" });
-				const mockParticipants = mockTripMembers
-					.filter((m) => m.trip_id === tripId)
-					.map((m) => mockUsers.find((u) => u.id === m.user_id))
-					.filter((u): u is User => u != null);
-				setParticipants(mockParticipants);
+			setPhotos(photosResult.data ?? []);
+
+			const userIds = (membersResult.data ?? [])
+				.map((m) => m.user_id)
+				.filter((id): id is string => id != null);
+
+			if (userIds.length > 0) {
+				const { data: users } = await supabase
+					.from("users")
+					.select("*")
+					.in("id", userIds);
+				setParticipants(users ?? []);
 			}
+		} catch (error) {
+			console.error("fetchTripData error:", error);
 		} finally {
 			setLoading(false);
 		}
@@ -104,26 +88,37 @@ export default function ActiveTripScreen() {
 	// --- データ保存 ---
 	const savePhoto = useCallback(
 		async (imageUri: string, lat: number, lng: number) => {
+			if (!tripId) return;
+
 			const {
 				data: { user },
 			} = await supabase.auth.getUser();
-			if (!user || !tripId) return;
+			if (!user) {
+				Alert.alert(
+					"ログインが必要です",
+					"写真を保存するにはログインしてください",
+				);
+				return;
+			}
 
 			const fileName = `${tripId}/${Date.now()}.jpg`;
 
-			const formData = new FormData();
-			formData.append("file", {
-				uri: imageUri,
-				type: "image/jpeg",
-				name: fileName,
-			} as unknown as Blob);
+			const file = new ExpoFile(imageUri);
+			const arrayBuffer = await file.arrayBuffer();
 
 			const { error: uploadError } = await supabase.storage
 				.from("photos")
-				.upload(fileName, formData);
+				.upload(fileName, arrayBuffer, {
+					contentType: "image/jpeg",
+					upsert: false,
+				});
 
 			if (uploadError) {
-				Alert.alert("エラー", "写真のアップロードに失敗しました");
+				console.error("Storage upload error:", uploadError);
+				Alert.alert(
+					"アップロードエラー",
+					`写真のアップロードに失敗しました\n${uploadError.message}`,
+				);
 				return;
 			}
 
@@ -140,43 +135,57 @@ export default function ActiveTripScreen() {
 			});
 
 			if (insertError) {
-				Alert.alert("エラー", "写真データの保存に失敗しました");
+				console.error("Photos insert error:", insertError);
+				Alert.alert(
+					"保存エラー",
+					`写真データの保存に失敗しました\n${insertError.message}`,
+				);
 				return;
 			}
 
 			await fetchTripData();
+			Alert.alert("保存完了", "写真を保存しました");
 		},
 		[tripId, fetchTripData],
 	);
 
 	// --- カメラ撮影 ---
 	const handleTakePhoto = useCallback(async () => {
-		const cameraPerm = await ImagePicker.requestCameraPermissionsAsync();
-		if (!cameraPerm.granted) {
-			Alert.alert("権限エラー", "カメラの使用を許可してください");
-			return;
-		}
-
-		const locationPerm = await Location.requestForegroundPermissionsAsync();
-		if (!locationPerm.granted) {
-			Alert.alert("権限エラー", "位置情報の使用を許可してください");
-			return;
-		}
-
-		const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
-		if (result.canceled) return;
-
-		const imageUri = result.assets[0].uri;
-
-		const location = await Location.getCurrentPositionAsync({
-			accuracy: Location.Accuracy.High,
-		});
-		const { latitude, longitude } = location.coords;
-
-		setIsSaving(true);
 		try {
-			await savePhoto(imageUri, latitude, longitude);
-		} finally {
+			const cameraPerm = await ImagePicker.requestCameraPermissionsAsync();
+			if (!cameraPerm.granted) {
+				Alert.alert("権限エラー", "カメラの使用を許可してください");
+				return;
+			}
+
+			const locationPerm = await Location.requestForegroundPermissionsAsync();
+			if (!locationPerm.granted) {
+				Alert.alert("権限エラー", "位置情報の使用を許可してください");
+				return;
+			}
+
+			const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+			if (result.canceled) return;
+
+			const imageUri = result.assets[0].uri;
+
+			const location = await Location.getCurrentPositionAsync({
+				accuracy: Location.Accuracy.High,
+			});
+			const { latitude, longitude } = location.coords;
+
+			setIsSaving(true);
+			try {
+				await savePhoto(imageUri, latitude, longitude);
+			} finally {
+				setIsSaving(false);
+			}
+		} catch (error) {
+			console.error("handleTakePhoto error:", error);
+			Alert.alert(
+				"エラー",
+				"写真の撮影・保存中にエラーが発生しました。もう一度お試しください。",
+			);
 			setIsSaving(false);
 		}
 	}, [savePhoto]);
@@ -189,21 +198,21 @@ export default function ActiveTripScreen() {
 				text: "終了する",
 				style: "destructive",
 				onPress: async () => {
-					// ストアのステータスを更新
-					if (tripId) {
-						updateTripStatus(tripId, "finished");
-					}
-
-					// DB も更新を試行
 					const { error } = await supabase
 						.from("trips")
 						.update({ status: "finished" })
 						.eq("id", tripId);
 
 					if (error) {
-						console.warn("Trip status update failed:", error.message);
+						console.error("Trip status update failed:", error);
+						Alert.alert("エラー", `旅行の終了に失敗しました\n${error.message}`);
+						return;
 					}
 
+					if (tripId) {
+						updateTripStatus(tripId, "finished");
+					}
+					await fetchTrips();
 					router.back();
 				},
 			},
