@@ -16,7 +16,10 @@ export default function RootLayout() {
 			/>
 			<Stack.Screen
 				name="trip/[id]"
-				options={{ headerShown: true, title: "旅行プラン詳細" }}
+				options={{
+					headerShown: false,
+					presentation: "modal",
+				}}
 			/>
 		</Stack>
 	);
