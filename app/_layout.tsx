@@ -18,6 +18,13 @@ export default function RootLayout() {
 					presentation: "modal",
 				}}
 			/>
+			<Stack.Screen
+				name="trip/active"
+				options={{
+					headerShown: false,
+					animation: "slide_from_right",
+				}}
+			/>
 		</Stack>
 	);
 }

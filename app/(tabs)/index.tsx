@@ -1,22 +1,40 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "../../src/constants/colors";
-import { mockTrips } from "../../src/data/mock";
+import {
+	getActiveTripId,
+	getTrips,
+	subscribe,
+} from "../../src/store/tripStore";
 import type { Trip } from "../../src/types";
 
 // ホーム画面 - 旅行プランカード一覧
 export default function HomeScreen() {
 	const router = useRouter();
+	const [trips, setTrips] = useState(getTrips);
+	const [activeTripId, setActiveTripId] = useState(getActiveTripId);
 
-	// 日付をフォーマットする関数
+	// ストアの変更を監視 + 画面フォーカス時に再取得
+	useFocusEffect(
+		useCallback(() => {
+			setTrips(getTrips());
+			setActiveTripId(getActiveTripId());
+			const unsubscribe = subscribe(() => {
+				setTrips(getTrips());
+				setActiveTripId(getActiveTripId());
+			});
+			return unsubscribe;
+		}, []),
+	);
+
 	const formatDate = (dateString: string | null) => {
 		if (!dateString) return "";
 		const date = new Date(dateString);
 		return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 	};
 
-	// ステータスに応じたラベルを返す関数
 	const getStatusLabel = (status: Trip["status"]) => {
 		switch (status) {
 			case "planned":
@@ -30,13 +48,12 @@ export default function HomeScreen() {
 		}
 	};
 
-	// ステータスに応じた色を返す関数
 	const getStatusColor = (status: Trip["status"]) => {
 		switch (status) {
 			case "planned":
 				return Colors.primary;
 			case "started":
-				return "#FF9800"; // オレンジ
+				return "#FF9800";
 			case "finished":
 				return Colors.gray;
 			default:
@@ -44,54 +61,95 @@ export default function HomeScreen() {
 		}
 	};
 
+	const handleCardPress = (item: Trip) => {
+		if (item.status === "started") {
+			router.push({ pathname: "/trip/active", params: { tripId: item.id } });
+		} else {
+			router.push(`/trip/${item.id}`);
+		}
+	};
+
 	return (
 		<View style={styles.container}>
-			{/* 旅行プラン一覧 */}
 			<FlatList
-				data={mockTrips}
+				data={trips}
 				keyExtractor={(item) => item.id}
 				contentContainerStyle={styles.list}
-				renderItem={({ item }) => (
-					<Pressable
-						style={styles.card}
-						onPress={() => router.push(`/trip/${item.id}`)}
-					>
-						{/* カードヘッダー */}
-						<View style={styles.cardHeader}>
-							<Text style={styles.cardTitle}>{item.title}</Text>
-							<View
-								style={[
-									styles.statusBadge,
-									{ backgroundColor: getStatusColor(item.status) },
-								]}
-							>
-								<Text style={styles.statusText}>
-									{getStatusLabel(item.status)}
+				renderItem={({ item }) => {
+					const isActive = item.id === activeTripId;
+					const isLocked =
+						activeTripId != null && !isActive && item.status !== "finished";
+
+					return (
+						<Pressable
+							style={[
+								styles.card,
+								isActive && styles.cardActive,
+								isLocked && styles.cardLocked,
+							]}
+							onPress={() => handleCardPress(item)}
+							disabled={isLocked}
+						>
+							<View style={styles.cardHeader}>
+								<Text
+									style={[styles.cardTitle, isLocked && styles.cardTitleLocked]}
+								>
+									{item.title}
 								</Text>
+								<View
+									style={[
+										styles.statusBadge,
+										{ backgroundColor: getStatusColor(item.status) },
+									]}
+								>
+									<Text style={styles.statusText}>
+										{getStatusLabel(item.status)}
+									</Text>
+								</View>
 							</View>
-						</View>
 
-						{/* 開始日 */}
-						<View style={styles.cardInfo}>
-							<Ionicons name="calendar-outline" size={16} color={Colors.gray} />
-							<Text style={styles.cardDate}>{formatDate(item.start_date)}</Text>
-						</View>
-
-						{/* メモ（ある場合のみ表示） */}
-						{item.memo && (
 							<View style={styles.cardInfo}>
 								<Ionicons
-									name="document-text-outline"
+									name="calendar-outline"
 									size={16}
-									color={Colors.gray}
+									color={isLocked ? Colors.grayLight : Colors.gray}
 								/>
-								<Text style={styles.cardMemo} numberOfLines={1}>
-									{item.memo}
+								<Text
+									style={[styles.cardDate, isLocked && styles.cardTextLocked]}
+								>
+									{formatDate(item.start_date)}
 								</Text>
 							</View>
-						)}
-					</Pressable>
-				)}
+
+							{item.memo && (
+								<View style={styles.cardInfo}>
+									<Ionicons
+										name="document-text-outline"
+										size={16}
+										color={isLocked ? Colors.grayLight : Colors.gray}
+									/>
+									<Text
+										style={[styles.cardMemo, isLocked && styles.cardTextLocked]}
+										numberOfLines={1}
+									>
+										{item.memo}
+									</Text>
+								</View>
+							)}
+
+							{isLocked && (
+								<View style={styles.lockedBanner}>
+									<Ionicons
+										name="lock-closed"
+										size={14}
+										color={Colors.grayLight}
+									/>
+									<Text style={styles.lockedText}>他の旅行が進行中です</Text>
+								</View>
+							)}
+						</Pressable>
+					);
+				}}
 				ListEmptyComponent={
 					<View style={styles.emptyContainer}>
 						<Ionicons name="airplane-outline" size={64} color={Colors.gray} />
@@ -103,7 +161,6 @@ export default function HomeScreen() {
 				}
 			/>
 
-			{/* 旅行プラン作成ボタン (FAB) */}
 			<Pressable style={styles.fab} onPress={() => router.push("/create")}>
 				<Ionicons name="add" size={28} color={Colors.white} />
 			</Pressable>
@@ -131,6 +188,13 @@ const styles = StyleSheet.create({
 		elevation: 3,
 		borderWidth: 1,
 		borderColor: Colors.grayLighter,
+	},
+	cardActive: {
+		borderColor: "#FF9800",
+		borderWidth: 2,
+	},
+	cardLocked: {
+		opacity: 0.5,
 	},
 	cardHeader: {
 		flexDirection: "row",
@@ -186,6 +250,25 @@ const styles = StyleSheet.create({
 		fontSize: 14,
 		color: Colors.grayLight,
 		marginTop: 8,
+	},
+	cardTitleLocked: {
+		color: Colors.grayLight,
+	},
+	cardTextLocked: {
+		color: Colors.grayLight,
+	},
+	lockedBanner: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		marginTop: 12,
+		paddingTop: 12,
+		borderTopWidth: 1,
+		borderTopColor: Colors.grayLighter,
+	},
+	lockedText: {
+		fontSize: 12,
+		color: Colors.grayLight,
 	},
 	fab: {
 		position: "absolute",

@@ -15,7 +15,14 @@ import {
 	View,
 } from "react-native";
 import { Colors } from "../../src/constants/colors";
-import { mockTripMembers, mockTrips, mockUsers } from "../../src/data/mock";
+import { mockTripMembers, mockUsers } from "../../src/data/mock";
+import { supabase } from "../../src/lib/supabase";
+import {
+	getActiveTripId,
+	getTripById,
+	getTrips,
+	updateTripStatus,
+} from "../../src/store/tripStore";
 
 // 編集フォームの型定義
 type TripFormData = {
@@ -29,8 +36,11 @@ export default function TripDetailModal() {
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const router = useRouter();
 
-	// モックデータから該当旅行を取得（なければ先頭をフォールバック）
-	const trip = mockTrips.find((t) => t.id === id) ?? mockTrips[0];
+	// ストアから該当旅行を取得（なければ先頭をフォールバック）
+	const trip = getTripById(id) ?? getTrips()[0];
+	const activeTripId = getActiveTripId();
+	const isThisTripActive = trip.status === "started";
+	const isOtherTripActive = activeTripId != null && activeTripId !== trip.id;
 
 	// この旅行の参加者ユーザーを取得
 	const participants = mockTripMembers
@@ -58,10 +68,39 @@ export default function TripDetailModal() {
 	// 開始日ピッカーの表示状態
 	const [showDatePicker, setShowDatePicker] = useState(false);
 
-	// 旅行を開始してマップへ遷移
-	const handleStart = () => {
+	// 旅行を開始して旅行中画面へ遷移
+	const handleStart = async () => {
+		// ストアのステータスを更新
+		updateTripStatus(trip.id, "started");
+
+		// DB の status も更新を試行（モック ID の場合は失敗するが遷移は続行）
+		const { error } = await supabase
+			.from("trips")
+			.update({ status: "started" })
+			.eq("id", trip.id);
+
+		if (error) {
+			console.warn("Trip status update failed:", error.message);
+		}
+
 		router.dismiss();
-		router.push("/(tabs)/map");
+		setTimeout(() => {
+			router.push({
+				pathname: "/trip/active",
+				params: { tripId: trip.id },
+			});
+		}, 100);
+	};
+
+	// 旅行中画面を開く（既に開始済みの場合）
+	const handleResume = () => {
+		router.dismiss();
+		setTimeout(() => {
+			router.push({
+				pathname: "/trip/active",
+				params: { tripId: trip.id },
+			});
+		}, 100);
 	};
 
 	// 編集内容を保存（TODO: DB更新）
@@ -219,7 +258,7 @@ export default function TripDetailModal() {
 												mode="date"
 												display={Platform.OS === "ios" ? "spinner" : "default"}
 												locale="ja"
-												onChange={(event, selectedDate) => {
+												onChange={(_event, selectedDate) => {
 													if (Platform.OS !== "ios") {
 														setShowDatePicker(false);
 													}
@@ -276,7 +315,7 @@ export default function TripDetailModal() {
 				</View>
 			</ScrollView>
 
-			{/* フッター：編集中は保存ボタン、通常時は旅行開始ボタン */}
+			{/* フッター */}
 			<View style={styles.footer}>
 				{isEditing ? (
 					<Pressable style={styles.saveButton} onPress={handleSubmit(onSave)}>
@@ -288,6 +327,26 @@ export default function TripDetailModal() {
 						/>
 						<Text style={styles.startButtonText}>変更を保存する</Text>
 					</Pressable>
+				) : isThisTripActive ? (
+					<Pressable style={styles.resumeButton} onPress={handleResume}>
+						<Ionicons
+							name="map-outline"
+							size={20}
+							color={Colors.white}
+							style={styles.startIcon}
+						/>
+						<Text style={styles.startButtonText}>旅行中画面を開く</Text>
+					</Pressable>
+				) : isOtherTripActive ? (
+					<View style={styles.lockedButton}>
+						<Ionicons
+							name="lock-closed"
+							size={20}
+							color={Colors.white}
+							style={styles.startIcon}
+						/>
+						<Text style={styles.startButtonText}>他の旅行が進行中です</Text>
+					</View>
 				) : (
 					<Pressable style={styles.startButton} onPress={handleStart}>
 						<Ionicons
@@ -487,6 +546,22 @@ const styles = StyleSheet.create({
 	},
 	startButton: {
 		backgroundColor: Colors.primary,
+		borderRadius: 12,
+		paddingVertical: 16,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	resumeButton: {
+		backgroundColor: "#FF9800",
+		borderRadius: 12,
+		paddingVertical: 16,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	lockedButton: {
+		backgroundColor: Colors.grayLight,
 		borderRadius: 12,
 		paddingVertical: 16,
 		flexDirection: "row",
