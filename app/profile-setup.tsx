@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -21,6 +22,7 @@ import type { User } from "../src/types";
 
 const AVATAR_BUCKET =
 	process.env.EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET ?? "photos";
+const PROFILE_SETUP_REQUIRED_KEY = "profile_setup_required";
 
 type ProfileFormData = {
 	profileName: string;
@@ -205,6 +207,7 @@ export default function ProfileSetupScreen() {
 			}
 
 			await supabase.auth.updateUser({ data: payload });
+			await AsyncStorage.removeItem(PROFILE_SETUP_REQUIRED_KEY);
 			router.replace("/(tabs)");
 		} catch (error) {
 			Alert.alert(

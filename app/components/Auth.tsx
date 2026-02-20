@@ -1,6 +1,6 @@
-import * as Linking from "expo-linking";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import { useState } from "react";
 import {
 	Alert,
 	StyleSheet,
@@ -11,23 +11,32 @@ import {
 } from "react-native";
 import { supabase } from "../../src/lib/supabase";
 
+const PROFILE_SETUP_REQUIRED_KEY = "profile_setup_required";
+
 export default function Auth() {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [loading, setLoading] = useState(false);
 	const router = useRouter();
 
-	// Expo用のリダイレクトURLを取得
-	const redirectTo = Linking.createURL("/");
-
 	async function signInWithEmail() {
 		setLoading(true);
-		const { error, data } = await supabase.auth.signInWithPassword({
+		const {
+			data: { session },
+			error,
+		} = await supabase.auth.signInWithPassword({
 			email: email,
 			password: password,
 		});
 
-		if (error) Alert.alert(error.message);
+		if (error) {
+			Alert.alert(error.message);
+			setLoading(false);
+			return;
+		}
+		if (session) {
+			router.replace("/(tabs)");
+		}
 		setLoading(false);
 	}
 
@@ -46,6 +55,7 @@ export default function Auth() {
 			setLoading(false);
 			return;
 		}
+		await AsyncStorage.setItem(PROFILE_SETUP_REQUIRED_KEY, "1");
 
 		if (session) {
 			router.replace("/profile-setup");

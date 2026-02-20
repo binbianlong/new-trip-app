@@ -1,84 +1,50 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useAuth } from "../src/hooks/useAuth";
-import { supabase } from "../src/lib/supabase";
+
+const PROFILE_SETUP_REQUIRED_KEY = "profile_setup_required";
 
 // 認証状態に応じてリダイレクトするコンポーネント
 function AuthGuard() {
 	const { session, isLoading } = useAuth();
 	const segments = useSegments();
 	const router = useRouter();
-	const [isProfileComplete, setIsProfileComplete] = useState<
-		boolean | undefined
-	>(undefined);
-
-	useEffect(() => {
-		let isMounted = true;
-
-		const checkProfileCompletion = async () => {
-			if (!session) {
-				if (isMounted) setIsProfileComplete(undefined);
-				return;
-			}
-
-			const { data, error } = await supabase
-				.from("users")
-				.select("profile_name,username,avatar_url")
-				.eq("id", session.user.id)
-				.maybeSingle();
-
-			if (!isMounted) return;
-			if (error || !data) {
-				setIsProfileComplete(false);
-				return;
-			}
-
-			const isFilled = (value: string | null) =>
-				typeof value === "string" && value.trim().length > 0;
-			setIsProfileComplete(
-				isFilled(data.profile_name) &&
-					isFilled(data.username) &&
-					isFilled(data.avatar_url),
-			);
-		};
-
-		void checkProfileCompletion();
-		return () => {
-			isMounted = false;
-		};
-	}, [session]);
 
 	useEffect(() => {
 		if (isLoading) return;
-		if (session && isProfileComplete === undefined) return;
+		let isMounted = true;
 
-		// ログイン・オンボーディング画面はガード対象外
-		const isAuthScreen =
-			segments[0] === "screens" ||
-			segments[0] === "login" ||
-			segments[0] === "onboarding";
-		const isProfileScreen = segments[0] === "profile";
-		const isProfileSetupScreen = segments[0] === "profile-setup";
+		const handleNavigation = async () => {
+			const setupRequired =
+				(await AsyncStorage.getItem(PROFILE_SETUP_REQUIRED_KEY)) === "1";
 
-		if (!session && !isAuthScreen) {
-			// 未ログイン → ログイン画面へ
-			router.replace("/screens/auth/SignInScreen");
-		} else if (
-			session &&
-			isProfileComplete === false &&
-			!isProfileScreen &&
-			!isProfileSetupScreen
-		) {
-			// プロフィール未設定 → プロフィール設定画面へ
-			router.replace("/profile-setup");
-		} else if (session && isProfileComplete && isProfileSetupScreen) {
-			// プロフィール設定済みならホームへ
-			router.replace("/(tabs)");
-		} else if (session && isProfileComplete && isAuthScreen) {
-			// ログイン済みでログイン画面にいる → ホームへ
-			router.replace("/(tabs)");
-		}
-	}, [session, isLoading, isProfileComplete, segments, router]);
+			if (!isMounted) return;
+
+			// ログイン・オンボーディング画面はガード対象外
+			const isAuthScreen =
+				segments[0] === "screens" ||
+				segments[0] === "login" ||
+				segments[0] === "onboarding";
+			const isProfileSetupScreen = segments[0] === "profile-setup";
+
+			if (!session && !isAuthScreen) {
+				// 未ログイン → ログイン画面へ
+				router.replace("/screens/auth/SignInScreen");
+			} else if (session && setupRequired && !isProfileSetupScreen) {
+				// サインアップ後はプロフィール設定を優先
+				router.replace("/profile-setup");
+			} else if (session && isAuthScreen) {
+				// ログイン済みでログイン画面にいる → ホームへ
+				router.replace("/(tabs)");
+			}
+		};
+
+		void handleNavigation();
+		return () => {
+			isMounted = false;
+		};
+	}, [session, isLoading, segments, router]);
 
 	return null;
 }
