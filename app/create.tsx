@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
+	Alert,
 	KeyboardAvoidingView,
 	Platform,
 	Pressable,
@@ -12,8 +13,9 @@ import {
 	Text,
 	TextInput,
 	View,
-} from "react-native";
+} from "react-native"; // Alertを追加
 import { Colors } from "../src/constants/colors";
+import { supabase } from "../src/lib/supabase"; // ★Supabaseクライアントをインポート
 
 // フォームの型定義
 type TripFormData = {
@@ -25,6 +27,7 @@ type TripFormData = {
 // 旅行プラン作成画面
 export default function CreateScreen() {
 	const router = useRouter();
+	const [isSubmitting, setIsSubmitting] = useState(false); // ★送信中かどうかを管理
 	const {
 		control,
 		handleSubmit,
@@ -40,11 +43,40 @@ export default function CreateScreen() {
 	// 開始日ピッカーの表示状態
 	const [showDatePicker, setShowDatePicker] = useState(false);
 
-	// フォーム送信ハンドラー（将来的にSupabaseへ送信）
-	const onSubmit = (data: TripFormData) => {
-		console.log("旅行プランデータ:", data);
-		// TODO: Supabaseにtripsデータを登録する
-		router.back();
+	// ★ ここを非同期(async)に書き換えます
+	const onSubmit = async (data: TripFormData) => {
+		if (isSubmitting) return;
+
+		setIsSubmitting(true);
+		try {
+			// 1. 現在のログインユーザーを取得
+			const { data: authData, error: authError } =
+				await supabase.auth.getUser();
+			if (authError || !authData.user) {
+				throw new Error("ログイン情報が見つかりません。");
+			}
+
+			// 2. 英語名に合わせてデータを挿入
+			const { error } = await supabase.from("trips").insert([
+				{
+					title: data.title,
+					start_date: data.start_date,
+					memo: data.memo,
+					// owner_id: authData.user.id, // ← ここをコメントアウト（または削除）
+					owner_user_id: authData.user.id, // こちらが正しいUUID用のカラムです
+				},
+			]);
+
+			if (error) throw error;
+
+			Alert.alert("作成完了", "旅行プランを保存しました！");
+			router.back();
+		} catch (error: any) {
+			console.error(error);
+			Alert.alert("エラー", error.message || "保存に失敗しました");
+		} finally {
+			setIsSubmitting(false);
+		}
 	};
 
 	return (
@@ -172,8 +204,17 @@ export default function CreateScreen() {
 				</View>
 
 				{/* 作成完了ボタン */}
-				<Pressable style={styles.button} onPress={handleSubmit(onSubmit)}>
-					<Text style={styles.buttonText}>作成する</Text>
+				<Pressable
+					style={[
+						styles.button,
+						isSubmitting && { opacity: 0.5 }, // 保存中はボタンを少し薄くする
+					]}
+					onPress={handleSubmit(onSubmit)}
+					disabled={isSubmitting} // 保存中はボタンを押せなくする（二重登録防止）
+				>
+					<Text style={styles.buttonText}>
+						{isSubmitting ? "保存中..." : "作成する"}
+					</Text>
 				</Pressable>
 			</ScrollView>
 		</KeyboardAvoidingView>
