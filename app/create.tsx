@@ -62,6 +62,7 @@ export default function CreateScreen() {
 					title: data.title,
 					start_date: data.start_date,
 					memo: data.memo,
+					status: "planned",
 					// owner_id: authData.user.id, // ← ここをコメントアウト（または削除）
 					owner_user_id: authData.user.id, // こちらが正しいUUID用のカラムです
 				},
