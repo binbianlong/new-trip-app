@@ -53,6 +53,13 @@ export default function RootLayout() {
 					}}
 				/>
 				<Stack.Screen
+					name="profile"
+					options={{
+						headerShown: false,
+						presentation: "modal",
+					}}
+				/>
+				<Stack.Screen
 					name="trip/active"
 					options={{
 						headerShown: false,
