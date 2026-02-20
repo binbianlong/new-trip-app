@@ -12,11 +12,18 @@ import {
 } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { Colors } from "../../src/constants/colors";
-import { supabase } from "../../src/lib/supabase";
+import {
+	mockPhotos,
+	mockTripMembers,
+	mockTrips,
+	mockUsers,
+} from "../../src/data/mock";
 import type { Photo, Trip } from "../../src/types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const PHOTO_CARD_WIDTH = SCREEN_WIDTH * 0.4;
+const PHOTO_CARD_WIDTH_FOCUSED = SCREEN_WIDTH * 0.55;
+const PHOTO_CARD_WIDTH_UNFOCUSED = SCREEN_WIDTH * 0.28;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -104,6 +111,15 @@ export default function MapScreen() {
 		[trips, selectedTripId],
 	);
 
+	/** 選択中の旅行のメンバー */
+	const selectedMembers = useMemo(() => {
+		if (!selectedTripId) return [];
+		const memberUserIds = mockTripMembers
+			.filter((m) => m.trip_id === selectedTripId)
+			.map((m) => m.user_id);
+		return mockUsers.filter((u) => memberUserIds.includes(u.id));
+	}, [selectedTripId]);
+
 	/** 写真を時系列順に並べて経路として使う */
 	const photoRouteByTrip = useMemo(() => {
 		const map: Record<string, { latitude: number; longitude: number }[]> = {};
@@ -125,56 +141,13 @@ export default function MapScreen() {
 		return map;
 	}, [photosByTrip]);
 
-	// --- データ取得 ---
+	// --- データ取得（モックデータ使用） ---
 	const fetchMapData = useCallback(async () => {
 		setLoading(true);
-		try {
-			const {
-				data: { user },
-			} = await supabase.auth.getUser();
-
-			if (!user) {
-				setLoading(false);
-				return;
-			}
-
-			// 自分が参加している旅行IDを取得（フレンド参加含む）
-			const { data: members } = await supabase
-				.from("trip_members")
-				.select("trip_id")
-				.eq("user_id", user.id);
-
-			const tripIds = (members ?? [])
-				.map((m) => m.trip_id)
-				.filter((id): id is string => id != null);
-
-			if (tripIds.length === 0) {
-				setLoading(false);
-				return;
-			}
-
-			// 旅行・写真を並行取得
-			const [tripsResult, photosResult] = await Promise.all([
-				supabase
-					.from("trips")
-					.select("*")
-					.in("id", tripIds)
-					.order("start_date", { ascending: false }),
-				supabase
-					.from("photos")
-					.select("*")
-					.in("trip_id", tripIds)
-					.is("deleted_at", null)
-					.order("created_at", { ascending: true }),
-			]);
-
-			setTrips(tripsResult.data ?? []);
-			setPhotos(photosResult.data ?? []);
-		} catch {
-			// ネットワークエラー等
-		} finally {
-			setLoading(false);
-		}
+		// モックデータをそのまま使用
+		setTrips(mockTrips);
+		setPhotos(mockPhotos);
+		setLoading(false);
 	}, []);
 
 	useEffect(() => {
@@ -222,7 +195,8 @@ export default function MapScreen() {
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
 			if (viewableItems.length === 0) return;
-			const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
+			// 一番左側の見えているカードを選択する
+			const centerItem = viewableItems[0];
 			if (!centerItem) return;
 			const photo = centerItem.item;
 			if (photo.lat == null || photo.lng == null) return;
@@ -248,17 +222,24 @@ export default function MapScreen() {
 	const renderPhotoCard = useCallback(
 		({ item }: { item: Photo }) => {
 			const isFocused = item.id === focusedPhotoId;
+			const hasAnyFocus = focusedPhotoId != null;
+			const cardWidth = isFocused
+				? PHOTO_CARD_WIDTH_FOCUSED
+				: hasAnyFocus
+					? PHOTO_CARD_WIDTH_UNFOCUSED
+					: PHOTO_CARD_WIDTH;
 			const color = tripColorMap[item.trip_id ?? ""] ?? Colors.primary;
 			return (
 				<TouchableOpacity
 					style={[
 						styles.photoCard,
+						{ width: cardWidth },
 						isFocused && { borderColor: color, borderWidth: 2 },
 					]}
 					onPress={() => handlePhotoCardPress(item)}
 					activeOpacity={0.85}
 				>
-					<View style={styles.photoCardImage}>
+					<View style={[styles.photoCardImage, { height: cardWidth * 0.75 }]}>
 						{item.image_url ? (
 							<Image
 								source={{ uri: item.image_url }}
@@ -301,211 +282,196 @@ export default function MapScreen() {
 
 	return (
 		<View style={styles.container}>
-			{/* 地図 */}
-			<View style={styles.mapArea}>
-				<MapView
-					ref={mapRef}
-					style={styles.map}
-					initialRegion={JAPAN_REGION}
-					onPress={handleMapPress}
-				>
-					{/* 旅行間の経路線（旅行ピンをつなぐ） */}
-					{(() => {
-						const coords = trips
-							.filter((t) => tripPositions[t.id])
-							.map((t) => tripPositions[t.id]);
-						if (coords.length < 2) return null;
-						return (
-							<Polyline
-								coordinates={coords}
-								strokeColor={Colors.grayLight}
-								strokeWidth={2}
-								lineDashPattern={[12, 6]}
-							/>
-						);
-					})()}
+			{/* 地図（画面全体） */}
+			<MapView
+				ref={mapRef}
+				style={StyleSheet.absoluteFillObject}
+				initialRegion={JAPAN_REGION}
+				onPress={handleMapPress}
+			>
+				{/* 旅行ごとの経路（写真の位置を時系列で結ぶ） */}
+				{Object.entries(photoRouteByTrip).map(([tripId, coords]) => (
+					<Polyline
+						key={tripId}
+						coordinates={coords}
+						strokeColor={tripColorMap[tripId] ?? Colors.primary}
+						strokeWidth={3}
+					/>
+				))}
 
-					{/* 旅行ごとの経路（写真の位置を時系列で結ぶ） */}
-					{Object.entries(photoRouteByTrip).map(([tripId, coords]) => (
-						<Polyline
-							key={tripId}
-							coordinates={coords}
-							strokeColor={tripColorMap[tripId] ?? Colors.primary}
-							strokeWidth={3}
-						/>
+				{/* 旅行ピン */}
+				{trips.map((trip) => {
+					const pos = tripPositions[trip.id];
+					if (!pos) return null;
+					const color = tripColorMap[trip.id] ?? Colors.primary;
+					const isSelected = trip.id === selectedTripId;
+					const photoCount = (photosByTrip[trip.id] ?? []).length;
+
+					return (
+						<Marker
+							key={trip.id}
+							coordinate={pos}
+							onPress={() => handleTripPinPress(trip.id)}
+						>
+							<View
+								style={[
+									styles.tripPin,
+									{ backgroundColor: color },
+									isSelected && styles.tripPinSelected,
+								]}
+							>
+								<Ionicons name="location" size={16} color={Colors.white} />
+								{photoCount > 0 && (
+									<View style={styles.tripPinBadge}>
+										<Text style={styles.tripPinBadgeText}>{photoCount}</Text>
+									</View>
+								)}
+							</View>
+							<View style={styles.tripPinLabel}>
+								<Text
+									style={[
+										styles.tripPinLabelText,
+										isSelected && { fontWeight: "800", color },
+									]}
+									numberOfLines={1}
+								>
+									{trip.title ?? "無題"}
+								</Text>
+							</View>
+						</Marker>
+					);
+				})}
+
+				{/* 選択中の旅行の写真ピン */}
+				{selectedPhotos
+					.filter((p) => p.lat != null && p.lng != null)
+					.map((photo) => (
+						<Marker
+							key={photo.id}
+							coordinate={{
+								latitude: photo.lat as number,
+								longitude: photo.lng as number,
+							}}
+							onPress={() => handlePhotoCardPress(photo)}
+						>
+							<View
+								style={[
+									styles.photoPin,
+									photo.id === focusedPhotoId && styles.photoPinFocused,
+								]}
+							>
+								{photo.image_url ? (
+									<Image
+										source={{ uri: photo.image_url }}
+										style={styles.photoPinImage}
+									/>
+								) : (
+									<Ionicons name="camera" size={14} color={Colors.white} />
+								)}
+							</View>
+						</Marker>
 					))}
+			</MapView>
 
-					{/* 旅行ピン */}
-					{trips.map((trip) => {
-						const pos = tripPositions[trip.id];
-						if (!pos) return null;
-						const color = tripColorMap[trip.id] ?? Colors.primary;
-						const isSelected = trip.id === selectedTripId;
-						const photoCount = (photosByTrip[trip.id] ?? []).length;
-
-						return (
-							<Marker
-								key={trip.id}
-								coordinate={pos}
-								onPress={() => handleTripPinPress(trip.id)}
-							>
+			{/* 上部オーバーレイ: 旅行情報 */}
+			{selectedTrip && (
+				<View style={styles.tripInfoOverlay}>
+					<View style={styles.tripInfoRow}>
+						<View
+							style={[
+								styles.tripInfoDot,
+								{
+									backgroundColor:
+										tripColorMap[selectedTrip.id] ?? Colors.primary,
+								},
+							]}
+						/>
+						<Text style={styles.tripInfoTitle} numberOfLines={1}>
+							{selectedTrip.title ?? "無題"}
+						</Text>
+						<TouchableOpacity
+							onPress={() => {
+								setSelectedTripId(null);
+								setFocusedPhotoId(null);
+							}}
+							hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+						>
+							<Ionicons name="chevron-down" size={20} color={Colors.gray} />
+						</TouchableOpacity>
+					</View>
+					<View style={styles.tripInfoMeta}>
+						<Ionicons name="calendar-outline" size={13} color={Colors.gray} />
+						<Text style={styles.tripInfoMetaText}>
+							{selectedTrip.start_date ?? ""}
+							{selectedTrip.end_date ? ` 〜 ${selectedTrip.end_date}` : ""}
+						</Text>
+					</View>
+					{selectedMembers.length > 0 && (
+						<View style={styles.tripInfoMeta}>
+							<Ionicons name="people-outline" size={13} color={Colors.gray} />
+							{selectedMembers.slice(0, 3).map((member, i) => (
 								<View
-									style={[
-										styles.tripPin,
-										{ backgroundColor: color },
-										isSelected && styles.tripPinSelected,
-									]}
+									key={member.id}
+									style={[styles.memberAvatar, i > 0 && { marginLeft: -6 }]}
 								>
-									<Ionicons name="location" size={16} color={Colors.white} />
-									{photoCount > 0 && (
-										<View style={styles.tripPinBadge}>
-											<Text style={styles.tripPinBadgeText}>{photoCount}</Text>
-										</View>
-									)}
-								</View>
-								<View style={styles.tripPinLabel}>
-									<Text
-										style={[
-											styles.tripPinLabelText,
-											isSelected && { fontWeight: "800", color },
-										]}
-										numberOfLines={1}
-									>
-										{trip.title ?? "無題"}
-									</Text>
-								</View>
-							</Marker>
-						);
-					})}
-
-					{/* 選択中の旅行の写真ピン */}
-					{selectedPhotos
-						.filter((p) => p.lat != null && p.lng != null)
-						.map((photo) => (
-							<Marker
-								key={photo.id}
-								coordinate={{
-									latitude: photo.lat as number,
-									longitude: photo.lng as number,
-								}}
-								onPress={() => handlePhotoCardPress(photo)}
-							>
-								<View
-									style={[
-										styles.photoPin,
-										photo.id === focusedPhotoId && styles.photoPinFocused,
-									]}
-								>
-									{photo.image_url ? (
+									{member.avatar_url ? (
 										<Image
-											source={{ uri: photo.image_url }}
-											style={styles.photoPinImage}
+											source={{ uri: member.avatar_url }}
+											style={styles.memberAvatarImage}
 										/>
 									) : (
-										<Ionicons name="camera" size={14} color={Colors.white} />
+										<Ionicons name="person" size={10} color={Colors.gray} />
 									)}
 								</View>
-							</Marker>
-						))}
-				</MapView>
-			</View>
+							))}
+							<Text style={styles.tripInfoMetaText}>
+								{selectedMembers
+									.slice(0, 2)
+									.map((m) => m.profile_name ?? m.username)
+									.join("・")}
+								{selectedMembers.length > 2
+									? ` 他${selectedMembers.length - 2}名`
+									: ""}
+							</Text>
+						</View>
+					)}
+				</View>
+			)}
 
-			{/* 下部パネル */}
+			{/* 下部パネル: 写真のみ */}
 			<View style={styles.bottomPanel}>
 				{selectedTrip ? (
-					<>
-						<View style={styles.tripHeader}>
-							<View style={styles.tripHeaderLeft}>
-								<View
-									style={[
-										styles.tripHeaderDot,
-										{
-											backgroundColor:
-												tripColorMap[selectedTrip.id] ?? Colors.primary,
-										},
-									]}
-								/>
-								<View>
-									<Text style={styles.tripTitle}>
-										{selectedTrip.title ?? "無題"}
-									</Text>
-									<Text style={styles.tripDate}>
-										{selectedTrip.start_date ?? ""}
-									</Text>
-								</View>
-							</View>
-						</View>
-
-						{selectedPhotos.length > 0 ? (
-							<FlatList
-								ref={photoListRef}
-								data={selectedPhotos}
-								keyExtractor={(item) => String(item.id)}
-								renderItem={renderPhotoCard}
-								horizontal
-								showsHorizontalScrollIndicator={false}
-								contentContainerStyle={styles.photoList}
-								ItemSeparatorComponent={() => (
-									<View style={styles.photoSeparator} />
-								)}
-								onViewableItemsChanged={onViewableItemsChanged}
-								viewabilityConfig={viewabilityConfig}
-								getItemLayout={(_, index) => ({
-									length: PHOTO_CARD_WIDTH + 10,
-									offset: (PHOTO_CARD_WIDTH + 10) * index,
-									index,
-								})}
+					selectedPhotos.length > 0 ? (
+						<FlatList
+							ref={photoListRef}
+							data={selectedPhotos}
+							keyExtractor={(item) => String(item.id)}
+							renderItem={renderPhotoCard}
+							horizontal
+							showsHorizontalScrollIndicator={false}
+							contentContainerStyle={styles.photoList}
+							ItemSeparatorComponent={() => (
+								<View style={styles.photoSeparator} />
+							)}
+							onViewableItemsChanged={onViewableItemsChanged}
+							viewabilityConfig={viewabilityConfig}
+							extraData={focusedPhotoId}
+							getItemLayout={(_, index) => ({
+								length: PHOTO_CARD_WIDTH + 10,
+								offset: (PHOTO_CARD_WIDTH + 10) * index,
+								index,
+							})}
+						/>
+					) : (
+						<View style={styles.noPhotos}>
+							<Ionicons
+								name="camera-outline"
+								size={24}
+								color={Colors.grayLight}
 							/>
-						) : (
-							<View style={styles.noPhotos}>
-								<Ionicons
-									name="camera-outline"
-									size={24}
-									color={Colors.grayLight}
-								/>
-								<Text style={styles.noPhotosText}>まだ写真がありません</Text>
-							</View>
-						)}
-
-						{/* フォーカス中の写真の詳細 */}
-						{focusedPhotoId != null &&
-							(() => {
-								const photo = selectedPhotos.find(
-									(p) => p.id === focusedPhotoId,
-								);
-								if (!photo) return null;
-								return (
-									<View style={styles.photoDetail}>
-										<View style={styles.photoDetailDivider} />
-										{photo.lat != null && photo.lng != null && (
-											<View style={styles.photoDetailRow}>
-												<Ionicons
-													name="location"
-													size={14}
-													color={
-														tripColorMap[photo.trip_id ?? ""] ?? Colors.primary
-													}
-												/>
-												<Text style={styles.photoDetailLocation}>
-													{photo.lat.toFixed(4)}, {photo.lng.toFixed(4)}
-												</Text>
-											</View>
-										)}
-										{photo.created_at && (
-											<Text style={styles.photoDetailMeta}>
-												{new Date(photo.created_at).toLocaleString("ja-JP", {
-													year: "numeric",
-													month: "short",
-													day: "numeric",
-													hour: "2-digit",
-													minute: "2-digit",
-												})}
-											</Text>
-										)}
-									</View>
-								);
-							})()}
-					</>
+							<Text style={styles.noPhotosText}>まだ写真がありません</Text>
+						</View>
+					)
 				) : (
 					<View style={styles.emptyPanel}>
 						<Ionicons name="map-outline" size={28} color={Colors.grayLight} />
@@ -625,45 +591,82 @@ const styles = StyleSheet.create({
 		borderRadius: 14,
 	},
 
-	/* 下部パネル */
-	bottomPanel: {
-		backgroundColor: Colors.white,
-		borderTopWidth: 1,
-		borderTopColor: Colors.grayLighter,
-		paddingBottom: 8,
-	},
-	tripHeader: {
-		flexDirection: "row",
-		justifyContent: "space-between",
-		alignItems: "center",
-		paddingHorizontal: 16,
+	/* 上部オーバーレイ */
+	tripInfoOverlay: {
+		position: "absolute",
+		top: 12,
+		left: 12,
+		right: 12,
+		backgroundColor: "rgba(255,255,255,0.95)",
+		borderRadius: 14,
+		paddingHorizontal: 14,
 		paddingVertical: 12,
+		gap: 6,
+		shadowColor: Colors.black,
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.15,
+		shadowRadius: 8,
+		elevation: 5,
 	},
-	tripHeaderLeft: {
+	tripInfoRow: {
 		flexDirection: "row",
 		alignItems: "center",
-		gap: 10,
+		gap: 8,
 	},
-	tripHeaderDot: {
+	tripInfoDot: {
 		width: 10,
 		height: 10,
 		borderRadius: 5,
+		flexShrink: 0,
 	},
-	tripTitle: {
-		fontSize: 18,
+	tripInfoTitle: {
+		fontSize: 17,
 		fontWeight: "700",
 		color: Colors.black,
+		flex: 1,
 	},
-	tripDate: {
+	tripInfoMeta: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+	},
+	tripInfoMetaText: {
 		fontSize: 13,
 		color: Colors.gray,
-		marginTop: 2,
+	},
+	memberAvatar: {
+		width: 20,
+		height: 20,
+		borderRadius: 10,
+		backgroundColor: Colors.grayLighter,
+		justifyContent: "center",
+		alignItems: "center",
+		borderWidth: 1.5,
+		borderColor: Colors.white,
+		overflow: "hidden",
+	},
+	memberAvatarImage: {
+		width: 20,
+		height: 20,
+		borderRadius: 10,
+	},
+
+	/* 下部パネル */
+	bottomPanel: {
+		position: "absolute",
+		bottom: 0,
+		left: 0,
+		right: 0,
+		backgroundColor: "transparent",
+		paddingBottom: 12,
+		paddingTop: 4,
 	},
 
 	/* 写真ギャラリー */
 	photoList: {
-		paddingHorizontal: 16,
+		paddingHorizontal: SCREEN_WIDTH / 2 - PHOTO_CARD_WIDTH / 2,
 		paddingBottom: 8,
+		alignItems: "flex-end",
 	},
 	photoSeparator: {
 		width: 10,
@@ -671,7 +674,7 @@ const styles = StyleSheet.create({
 	photoCard: {
 		width: PHOTO_CARD_WIDTH,
 		borderRadius: 12,
-		backgroundColor: Colors.background,
+		backgroundColor: "transparent",
 		overflow: "hidden",
 		borderWidth: 1,
 		borderColor: "transparent",
@@ -695,7 +698,8 @@ const styles = StyleSheet.create({
 		fontSize: 11,
 		color: Colors.gray,
 		paddingHorizontal: 8,
-		paddingVertical: 6,
+		paddingVertical: 4,
+		backgroundColor: Colors.white,
 	},
 
 	/* 写真なし */
@@ -707,31 +711,6 @@ const styles = StyleSheet.create({
 	noPhotosText: {
 		fontSize: 13,
 		color: Colors.grayLight,
-	},
-
-	/* 写真詳細 */
-	photoDetail: {
-		paddingHorizontal: 16,
-		paddingBottom: 4,
-	},
-	photoDetailDivider: {
-		height: 1,
-		backgroundColor: Colors.grayLighter,
-		marginBottom: 10,
-	},
-	photoDetailRow: {
-		flexDirection: "row",
-		alignItems: "center",
-		gap: 6,
-		marginBottom: 4,
-	},
-	photoDetailLocation: {
-		fontSize: 14,
-		color: Colors.gray,
-	},
-	photoDetailMeta: {
-		fontSize: 12,
-		color: Colors.gray,
 	},
 
 	/* 未選択 */
