@@ -104,7 +104,7 @@ export default function HomeScreen() {
 			/>
 
 			{/* 旅行プラン作成ボタン (FAB) */}
-			<Pressable style={styles.fab} onPress={() => router.push("/create")}>
+			<Pressable style={styles.fab} onPress={() => router.push("/login")}>
 				<Ionicons name="add" size={28} color={Colors.white} />
 			</Pressable>
 		</View>
