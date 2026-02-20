@@ -1,4 +1,4 @@
-import type { Trip, User } from "../types";
+import type { Trip, TripMember, User } from "../types";
 
 // モックユーザーデータ
 export const mockUsers: User[] = [
@@ -7,7 +7,7 @@ export const mockUsers: User[] = [
 		username: "yamada123",
 		profile_name: "山田太郎",
 		email: "yamada@example.com",
-		avatar_url: null,
+		avatar_url: "https://i.pravatar.cc/150?u=user-1",
 		created_at: "2026-01-01T00:00:00Z",
 		updated_at: "2026-01-01T00:00:00Z",
 		deleted_at: null,
@@ -17,9 +17,95 @@ export const mockUsers: User[] = [
 		username: "tanaka456",
 		profile_name: "田中花子",
 		email: "tanaka@example.com",
-		avatar_url: null,
+		avatar_url: "https://i.pravatar.cc/150?u=user-2",
 		created_at: "2026-01-02T00:00:00Z",
 		updated_at: "2026-01-02T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "user-3",
+		username: "suzuki789",
+		profile_name: "鈴木次郎",
+		email: "suzuki@example.com",
+		avatar_url: "https://i.pravatar.cc/150?u=user-3",
+		created_at: "2026-01-03T00:00:00Z",
+		updated_at: "2026-01-03T00:00:00Z",
+		deleted_at: null,
+	},
+];
+
+// モック旅行メンバーデータ
+export const mockTripMembers: TripMember[] = [
+	{
+		id: "member-1",
+		trip_id: "trip-1",
+		user_id: "user-1",
+		joined_at: "2026-02-01T00:00:00Z",
+		created_at: "2026-02-01T00:00:00Z",
+		updated_at: "2026-02-01T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-2",
+		trip_id: "trip-1",
+		user_id: "user-2",
+		joined_at: "2026-02-01T00:00:00Z",
+		created_at: "2026-02-01T00:00:00Z",
+		updated_at: "2026-02-01T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-3",
+		trip_id: "trip-2",
+		user_id: "user-1",
+		joined_at: "2026-02-05T00:00:00Z",
+		created_at: "2026-02-05T00:00:00Z",
+		updated_at: "2026-02-05T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-4",
+		trip_id: "trip-2",
+		user_id: "user-3",
+		joined_at: "2026-02-05T00:00:00Z",
+		created_at: "2026-02-05T00:00:00Z",
+		updated_at: "2026-02-05T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-5",
+		trip_id: "trip-3",
+		user_id: "user-2",
+		joined_at: "2026-02-10T00:00:00Z",
+		created_at: "2026-02-10T00:00:00Z",
+		updated_at: "2026-02-10T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-6",
+		trip_id: "trip-4",
+		user_id: "user-1",
+		joined_at: "2026-02-15T00:00:00Z",
+		created_at: "2026-02-15T00:00:00Z",
+		updated_at: "2026-02-15T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-7",
+		trip_id: "trip-4",
+		user_id: "user-2",
+		joined_at: "2026-02-15T00:00:00Z",
+		created_at: "2026-02-15T00:00:00Z",
+		updated_at: "2026-02-15T00:00:00Z",
+		deleted_at: null,
+	},
+	{
+		id: "member-8",
+		trip_id: "trip-4",
+		user_id: "user-3",
+		joined_at: "2026-02-15T00:00:00Z",
+		created_at: "2026-02-15T00:00:00Z",
+		updated_at: "2026-02-15T00:00:00Z",
 		deleted_at: null,
 	},
 ];
