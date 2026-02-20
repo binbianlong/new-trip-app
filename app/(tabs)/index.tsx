@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "../../src/constants/colors";
 import {
+	fetchTrips,
 	getActiveTripId,
 	getTrips,
 	subscribe,
@@ -16,11 +17,13 @@ export default function HomeScreen() {
 	const [trips, setTrips] = useState(getTrips);
 	const [activeTripId, setActiveTripId] = useState(getActiveTripId);
 
-	// ストアの変更を監視 + 画面フォーカス時に再取得
+	// ストアの変更を監視 + 画面フォーカス時に Supabase から再取得
 	useFocusEffect(
 		useCallback(() => {
-			setTrips(getTrips());
-			setActiveTripId(getActiveTripId());
+			fetchTrips().then(() => {
+				setTrips(getTrips());
+				setActiveTripId(getActiveTripId());
+			});
 			const unsubscribe = subscribe(() => {
 				setTrips(getTrips());
 				setActiveTripId(getActiveTripId());

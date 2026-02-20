@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Controller, type SubmitHandler, useForm } from "react-hook-form";
 import {
+	Alert,
 	Image,
 	KeyboardAvoidingView,
 	Platform,
@@ -15,14 +16,16 @@ import {
 	View,
 } from "react-native";
 import { Colors } from "../../src/constants/colors";
-import { mockTripMembers, mockUsers } from "../../src/data/mock";
 import { supabase } from "../../src/lib/supabase";
 import {
+	fetchTrips,
 	getActiveTripId,
 	getTripById,
 	getTrips,
+	subscribe,
 	updateTripStatus,
 } from "../../src/store/tripStore";
+import type { User } from "../../src/types";
 
 // 編集フォームの型定義
 type TripFormData = {
@@ -36,17 +39,48 @@ export default function TripDetailModal() {
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const router = useRouter();
 
-	// ストアから該当旅行を取得（なければ先頭をフォールバック）
-	const trip = getTripById(id) ?? getTrips()[0];
-	const activeTripId = getActiveTripId();
+	// ストアから該当旅行を取得し、変更を監視
+	const [trip, setTrip] = useState(() => getTripById(id) ?? getTrips()[0]);
+	const [activeTripId, setActiveTripId] = useState(getActiveTripId);
+
+	useEffect(() => {
+		const unsubscribe = subscribe(() => {
+			const updated = getTripById(id);
+			if (updated) setTrip(updated);
+			setActiveTripId(getActiveTripId());
+		});
+		return unsubscribe;
+	}, [id]);
+
 	const isThisTripActive = trip.status === "started";
 	const isOtherTripActive = activeTripId != null && activeTripId !== trip.id;
 
-	// この旅行の参加者ユーザーを取得
-	const participants = mockTripMembers
-		.filter((m) => m.trip_id === trip.id)
-		.map((m) => mockUsers.find((u) => u.id === m.user_id))
-		.filter((u): u is NonNullable<typeof u> => u != null);
+	// この旅行の参加者ユーザーを Supabase から取得
+	const [participants, setParticipants] = useState<User[]>([]);
+
+	const fetchParticipants = useCallback(async () => {
+		const { data: members } = await supabase
+			.from("trip_members")
+			.select("user_id")
+			.eq("trip_id", trip.id)
+			.is("deletead_at", null);
+
+		const userIds = (members ?? [])
+			.map((m) => m.user_id)
+			.filter((uid): uid is string => uid != null);
+
+		if (userIds.length > 0) {
+			const { data: users } = await supabase
+				.from("users")
+				.select("*")
+				.in("id", userIds);
+			setParticipants(users ?? []);
+		}
+	}, [trip.id]);
+
+	useEffect(() => {
+		fetchParticipants();
+	}, [fetchParticipants]);
 
 	// 編集モードの状態管理
 	const [isEditing, setIsEditing] = useState(false);
@@ -70,18 +104,19 @@ export default function TripDetailModal() {
 
 	// 旅行を開始して旅行中画面へ遷移
 	const handleStart = async () => {
-		// ストアのステータスを更新
-		updateTripStatus(trip.id, "started");
-
-		// DB の status も更新を試行（モック ID の場合は失敗するが遷移は続行）
 		const { error } = await supabase
 			.from("trips")
 			.update({ status: "started" })
 			.eq("id", trip.id);
 
 		if (error) {
-			console.warn("Trip status update failed:", error.message);
+			console.error("Trip status update failed:", error);
+			Alert.alert("エラー", `旅行の開始に失敗しました\n${error.message}`);
+			return;
 		}
+
+		updateTripStatus(trip.id, "started");
+		await fetchTrips();
 
 		router.dismiss();
 		setTimeout(() => {
@@ -103,10 +138,35 @@ export default function TripDetailModal() {
 		}, 100);
 	};
 
-	// 編集内容を保存（TODO: DB更新）
-	const onSave: SubmitHandler<TripFormData> = (data) => {
-		console.log("更新データ:", data);
-		setIsEditing(false);
+	const [isSaving, setIsSaving] = useState(false);
+
+	const onSave: SubmitHandler<TripFormData> = async (data) => {
+		setIsSaving(true);
+		try {
+			const { error } = await supabase
+				.from("trips")
+				.update({
+					title: data.title,
+					start_date: data.start_date,
+					memo: data.memo,
+				})
+				.eq("id", trip.id);
+
+			if (error) {
+				console.error("Trip update error:", error);
+				Alert.alert("エラー", `保存に失敗しました\n${error.message}`);
+				return;
+			}
+
+			await fetchTrips();
+			setIsEditing(false);
+			Alert.alert("保存完了", "変更を保存しました");
+		} catch (error) {
+			console.error("onSave error:", error);
+			Alert.alert("エラー", "保存中にエラーが発生しました");
+		} finally {
+			setIsSaving(false);
+		}
 	};
 
 	return (
@@ -318,14 +378,20 @@ export default function TripDetailModal() {
 			{/* フッター */}
 			<View style={styles.footer}>
 				{isEditing ? (
-					<Pressable style={styles.saveButton} onPress={handleSubmit(onSave)}>
+					<Pressable
+						style={[styles.saveButton, isSaving && { opacity: 0.5 }]}
+						onPress={handleSubmit(onSave)}
+						disabled={isSaving}
+					>
 						<Ionicons
 							name="checkmark"
 							size={22}
 							color={Colors.white}
 							style={styles.startIcon}
 						/>
-						<Text style={styles.startButtonText}>変更を保存する</Text>
+						<Text style={styles.startButtonText}>
+							{isSaving ? "保存中..." : "変更を保存する"}
+						</Text>
 					</Pressable>
 				) : isThisTripActive ? (
 					<Pressable style={styles.resumeButton} onPress={handleResume}>

@@ -15,7 +15,8 @@ import {
 	View,
 } from "react-native"; // Alertを追加
 import { Colors } from "../src/constants/colors";
-import { supabase } from "../src/lib/supabase"; // ★Supabaseクライアントをインポート
+import { supabase } from "../src/lib/supabase";
+import { fetchTrips } from "../src/store/tripStore";
 
 // フォームの型定義
 type TripFormData = {
@@ -56,20 +57,19 @@ export default function CreateScreen() {
 				throw new Error("ログイン情報が見つかりません。");
 			}
 
-			// 2. 英語名に合わせてデータを挿入
 			const { error } = await supabase.from("trips").insert([
 				{
 					title: data.title,
 					start_date: data.start_date,
 					memo: data.memo,
 					status: "planned",
-					// owner_id: authData.user.id, // ← ここをコメントアウト（または削除）
-					owner_user_id: authData.user.id, // こちらが正しいUUID用のカラムです
+					owner_user_id: authData.user.id,
 				},
 			]);
 
 			if (error) throw error;
 
+			await fetchTrips();
 			Alert.alert("作成完了", "旅行プランを保存しました！");
 			router.back();
 		} catch (error: any) {

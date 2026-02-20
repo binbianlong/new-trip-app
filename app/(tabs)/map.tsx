@@ -13,13 +13,8 @@ import {
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
-import {
-	mockPhotos,
-	mockTripMembers,
-	mockTrips,
-	mockUsers,
-} from "../../src/data/mock";
-import type { Photo, Trip } from "../../src/types";
+import { supabase } from "../../src/lib/supabase";
+import type { Photo, Trip, User } from "../../src/types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const PHOTO_CARD_WIDTH = SCREEN_WIDTH * 0.4;
@@ -114,12 +109,32 @@ export default function MapScreen() {
 	);
 
 	/** 選択中の旅行のメンバー */
-	const selectedMembers = useMemo(() => {
-		if (!selectedTripId) return [];
-		const memberUserIds = mockTripMembers
-			.filter((m) => m.trip_id === selectedTripId)
-			.map((m) => m.user_id);
-		return mockUsers.filter((u) => memberUserIds.includes(u.id));
+	const [selectedMembers, setSelectedMembers] = useState<User[]>([]);
+
+	useEffect(() => {
+		if (!selectedTripId) {
+			setSelectedMembers([]);
+			return;
+		}
+		(async () => {
+			const { data: members } = await supabase
+				.from("trip_members")
+				.select("user_id")
+				.eq("trip_id", selectedTripId)
+				.is("deletead_at", null);
+			const userIds = (members ?? [])
+				.map((m) => m.user_id)
+				.filter((uid): uid is string => uid != null);
+			if (userIds.length > 0) {
+				const { data: users } = await supabase
+					.from("users")
+					.select("*")
+					.in("id", userIds);
+				setSelectedMembers(users ?? []);
+			} else {
+				setSelectedMembers([]);
+			}
+		})();
 	}, [selectedTripId]);
 
 	/** 写真を時系列順に並べて経路として使う */
@@ -143,13 +158,67 @@ export default function MapScreen() {
 		return map;
 	}, [photosByTrip]);
 
-	// --- データ取得（モックデータ使用） ---
+	// --- データ取得（Supabase） ---
 	const fetchMapData = useCallback(async () => {
 		setLoading(true);
-		// モックデータをそのまま使用
-		setTrips(mockTrips);
-		setPhotos(mockPhotos);
-		setLoading(false);
+		try {
+			const {
+				data: { user },
+			} = await supabase.auth.getUser();
+			if (!user) {
+				setTrips([]);
+				setPhotos([]);
+				return;
+			}
+
+			const { data: memberRows } = await supabase
+				.from("trip_members")
+				.select("trip_id")
+				.eq("user_id", user.id)
+				.is("deletead_at", null);
+			const memberTripIds = (memberRows ?? [])
+				.map((r) => r.trip_id)
+				.filter((id): id is string => id != null);
+
+			const { data: ownedTrips } = await supabase
+				.from("trips")
+				.select("*")
+				.eq("owner_user_id", user.id)
+				.is("deleted_at", null);
+
+			const ownedIds = new Set((ownedTrips ?? []).map((t) => t.id));
+			const extraIds = memberTripIds.filter((id) => !ownedIds.has(id));
+
+			let extraTrips: Trip[] = [];
+			if (extraIds.length > 0) {
+				const { data } = await supabase
+					.from("trips")
+					.select("*")
+					.in("id", extraIds)
+					.is("deleted_at", null);
+				extraTrips = data ?? [];
+			}
+
+			const allTrips = [...(ownedTrips ?? []), ...extraTrips];
+			setTrips(allTrips);
+
+			const allTripIds = allTrips.map((t) => t.id);
+			if (allTripIds.length > 0) {
+				const { data: photosData } = await supabase
+					.from("photos")
+					.select("*")
+					.in("trip_id", allTripIds)
+					.is("deleted_at", null)
+					.order("created_at", { ascending: true });
+				setPhotos(photosData ?? []);
+			} else {
+				setPhotos([]);
+			}
+		} catch (error) {
+			console.error("fetchMapData error:", error);
+		} finally {
+			setLoading(false);
+		}
 	}, []);
 
 	useEffect(() => {
