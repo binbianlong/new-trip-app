@@ -410,43 +410,30 @@ export default function ProfileModal() {
 				showsVerticalScrollIndicator={false}
 			>
 				<View style={styles.profileHeader}>
-					{avatarImage ? (
-						<Image source={{ uri: avatarImage }} style={styles.avatarImage} />
-					) : (
-						<View style={styles.avatarFallback}>
-							<Text style={styles.avatarInitial}>{initial || "?"}</Text>
-						</View>
-					)}
+					<Pressable
+						style={[
+							styles.avatarButton,
+							isEditing && avatarError && styles.avatarButtonError,
+						]}
+						onPress={isEditing ? pickImage : undefined}
+						disabled={!isEditing}
+					>
+						{avatarImage ? (
+							<Image source={{ uri: avatarImage }} style={styles.avatarImage} />
+						) : (
+							<View style={styles.avatarFallback}>
+								<Text style={styles.avatarInitial}>{initial || "?"}</Text>
+							</View>
+						)}
+					</Pressable>
 					<Text style={styles.displayName}>{displayName}</Text>
 					<Text style={styles.email}>{profile?.email ?? "メール未設定"}</Text>
+					{isEditing && (
+						<Text style={styles.avatarHint}>画像をタップして変更</Text>
+					)}
 				</View>
-
-				{isEditing && (
-					<View style={styles.avatarSection}>
-						<Pressable
-							style={[
-								styles.avatarCircle,
-								avatarError && styles.avatarCircleError,
-							]}
-							onPress={pickImage}
-						>
-							{avatarImage ? (
-								<Image
-									source={{ uri: avatarImage }}
-									style={styles.avatarCircleImage}
-								/>
-							) : (
-								<Ionicons
-									name="camera-outline"
-									size={42}
-									color={Colors.white}
-								/>
-							)}
-						</Pressable>
-						{avatarError && (
-							<Text style={styles.errorText}>写真を選択してください</Text>
-						)}
-					</View>
+				{isEditing && avatarError && (
+					<Text style={styles.errorText}>写真を選択してください</Text>
 				)}
 
 				<View style={styles.field}>
@@ -611,6 +598,15 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		marginBottom: 20,
 	},
+	avatarButton: {
+		borderRadius: 44,
+		overflow: "hidden",
+		borderWidth: 2,
+		borderColor: "transparent",
+	},
+	avatarButtonError: {
+		borderColor: Colors.danger,
+	},
 	avatarImage: {
 		width: 88,
 		height: 88,
@@ -643,27 +639,10 @@ const styles = StyleSheet.create({
 		color: Colors.gray,
 		marginTop: 4,
 	},
-	avatarSection: {
-		alignItems: "center",
-		marginBottom: 18,
-	},
-	avatarCircle: {
-		width: 90,
-		height: 90,
-		borderRadius: 45,
-		backgroundColor: Colors.primaryDark,
-		justifyContent: "center",
-		alignItems: "center",
-		overflow: "hidden",
-		borderWidth: 2,
-		borderColor: "transparent",
-	},
-	avatarCircleError: {
-		borderColor: Colors.danger,
-	},
-	avatarCircleImage: {
-		width: "100%",
-		height: "100%",
+	avatarHint: {
+		fontSize: 12,
+		color: Colors.gray,
+		marginTop: 8,
 	},
 	field: {
 		marginBottom: 20,
