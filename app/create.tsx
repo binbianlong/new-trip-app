@@ -1,5 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
 	KeyboardAvoidingView,
@@ -34,6 +36,9 @@ export default function CreateScreen() {
 			memo: "",
 		},
 	});
+
+	// 開始日ピッカーの表示状態
+	const [showDatePicker, setShowDatePicker] = useState(false);
 
 	// フォーム送信ハンドラー（将来的にSupabaseへ送信）
 	const onSubmit = (data: TripFormData) => {
@@ -93,23 +98,52 @@ export default function CreateScreen() {
 					<Controller
 						control={control}
 						name="start_date"
-						rules={{
-							required: "開始日は必須です",
-							pattern: {
-								value: /^\d{4}-\d{2}-\d{2}$/,
-								message: "YYYY-MM-DD形式で入力してください",
-							},
-						}}
-						render={({ field: { onChange, onBlur, value } }) => (
-							<TextInput
-								style={[styles.input, errors.start_date && styles.inputError]}
-								placeholder="YYYY-MM-DD"
-								placeholderTextColor={Colors.grayLight}
-								onChangeText={onChange}
-								onBlur={onBlur}
-								value={value}
-								keyboardType="numbers-and-punctuation"
-							/>
+						rules={{ required: "開始日は必須です" }}
+						render={({ field: { onChange, value } }) => (
+							<>
+								<Pressable
+									onPress={() => setShowDatePicker(true)}
+									style={[
+										styles.dateButton,
+										errors.start_date && styles.inputError,
+									]}
+								>
+									<Ionicons
+										name="calendar-outline"
+										size={18}
+										color={Colors.primary}
+									/>
+									<Text
+										style={value ? styles.dateText : styles.datePlaceholder}
+									>
+										{value || "日付を選択"}
+									</Text>
+								</Pressable>
+								{showDatePicker && (
+									<DateTimePicker
+										value={value ? new Date(value) : new Date()}
+										mode="date"
+										display={Platform.OS === "ios" ? "spinner" : "default"}
+										locale="ja"
+										onChange={(event, selectedDate) => {
+											if (Platform.OS !== "ios") {
+												setShowDatePicker(false);
+											}
+											if (selectedDate) {
+												onChange(selectedDate.toISOString().split("T")[0]);
+											}
+										}}
+									/>
+								)}
+								{Platform.OS === "ios" && showDatePicker && (
+									<Pressable
+										onPress={() => setShowDatePicker(false)}
+										style={styles.dateDoneButton}
+									>
+										<Text style={styles.dateDoneText}>完了</Text>
+									</Pressable>
+								)}
+							</>
 						)}
 					/>
 					{errors.start_date && (
@@ -171,6 +205,33 @@ const styles = StyleSheet.create({
 		padding: 14,
 		fontSize: 16,
 		color: Colors.black,
+	},
+	dateButton: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+		borderWidth: 1,
+		borderColor: Colors.grayLight,
+		borderRadius: 12,
+		padding: 14,
+	},
+	dateText: {
+		fontSize: 16,
+		color: Colors.black,
+	},
+	datePlaceholder: {
+		fontSize: 16,
+		color: Colors.grayLight,
+	},
+	dateDoneButton: {
+		alignSelf: "flex-end",
+		paddingVertical: 8,
+		paddingHorizontal: 4,
+	},
+	dateDoneText: {
+		fontSize: 15,
+		color: Colors.primary,
+		fontWeight: "600",
 	},
 	inputError: {
 		borderColor: Colors.danger,
