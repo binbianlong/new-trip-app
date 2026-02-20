@@ -5,6 +5,7 @@ import {
 	Dimensions,
 	FlatList,
 	Image,
+	ScrollView,
 	StyleSheet,
 	Text,
 	TouchableOpacity,
@@ -101,6 +102,17 @@ export default function MapScreen() {
 	const selectedPhotos = useMemo(
 		() => (selectedTripId ? (photosByTrip[selectedTripId] ?? []) : []),
 		[photosByTrip, selectedTripId],
+	);
+
+	/** 全写真を新しい順に並べたもの（通常状態で使用） */
+	const allPhotosSorted = useMemo(
+		() =>
+			[...photos].sort(
+				(a, b) =>
+					new Date(b.created_at ?? "").getTime() -
+					new Date(a.created_at ?? "").getTime(),
+			),
+		[photos],
 	);
 
 	const selectedTrip = useMemo(
@@ -204,12 +216,14 @@ export default function MapScreen() {
 
 			const allTripIds = allTrips.map((t) => t.id);
 			if (allTripIds.length > 0) {
-				const { data: photosData } = await supabase
+				const { data: photosData, error: photosError } = await supabase
 					.from("photos")
 					.select("*")
 					.in("trip_id", allTripIds)
-					.is("deleted_at", null)
 					.order("created_at", { ascending: true });
+				if (photosError) {
+					console.error("Photos fetch error:", photosError);
+				}
 				setPhotos(photosData ?? []);
 			} else {
 				setPhotos([]);
@@ -245,6 +259,9 @@ export default function MapScreen() {
 				setFocusedPhotoId(null);
 			} else {
 				setFocusedPhotoId(photo.id);
+				if (!selectedTripId && photo.trip_id) {
+					setSelectedTripId(photo.trip_id);
+				}
 				mapRef.current?.animateToRegion(
 					{
 						latitude: photo.lat,
@@ -256,7 +273,7 @@ export default function MapScreen() {
 				);
 			}
 		},
-		[focusedPhotoId],
+		[focusedPhotoId, selectedTripId],
 	);
 
 	const handleMapPress = useCallback(() => {
@@ -438,39 +455,43 @@ export default function MapScreen() {
 					);
 				})}
 
-				{/* 選択中の旅行の写真ピン */}
-				{selectedPhotos
+				{/* 写真ピン（通常時は全写真、選択時はその旅行の写真） */}
+				{(selectedTripId ? selectedPhotos : photos)
 					.filter((p) => p.lat != null && p.lng != null)
-					.map((photo) => (
-						<Marker
-							key={photo.id}
-							coordinate={{
-								latitude: photo.lat as number,
-								longitude: photo.lng as number,
-							}}
-							onPress={() => handlePhotoCardPress(photo)}
-						>
-							<View
-								style={[
-									styles.photoPin,
-									photo.id === focusedPhotoId && styles.photoPinFocused,
-								]}
+					.map((photo) => {
+						const color = tripColorMap[photo.trip_id ?? ""] ?? Colors.primary;
+						return (
+							<Marker
+								key={photo.id}
+								coordinate={{
+									latitude: photo.lat as number,
+									longitude: photo.lng as number,
+								}}
+								onPress={() => handlePhotoCardPress(photo)}
 							>
-								{photo.image_url ? (
-									<Image
-										source={{ uri: photo.image_url }}
-										style={styles.photoPinImage}
-									/>
-								) : (
-									<Ionicons name="camera" size={14} color={Colors.white} />
-								)}
-							</View>
-						</Marker>
-					))}
+								<View
+									style={[
+										styles.photoPin,
+										!selectedTripId && { borderColor: color },
+										photo.id === focusedPhotoId && styles.photoPinFocused,
+									]}
+								>
+									{photo.image_url ? (
+										<Image
+											source={{ uri: photo.image_url }}
+											style={styles.photoPinImage}
+										/>
+									) : (
+										<Ionicons name="camera" size={14} color={Colors.white} />
+									)}
+								</View>
+							</Marker>
+						);
+					})}
 			</MapView>
 
-			{/* 上部オーバーレイ: 旅行情報 */}
-			{selectedTrip && (
+			{/* 上部オーバーレイ */}
+			{selectedTrip ? (
 				<View style={[styles.tripInfoOverlay, { top: insets.top + 12 }]}>
 					<View style={styles.tripInfoRow}>
 						<View
@@ -532,6 +553,42 @@ export default function MapScreen() {
 						</View>
 					)}
 				</View>
+			) : (
+				trips.length > 0 && (
+					<ScrollView
+						horizontal
+						showsHorizontalScrollIndicator={false}
+						style={[styles.tripChipList, { top: insets.top + 8 }]}
+						contentContainerStyle={styles.tripChipListContent}
+					>
+						{trips.map((trip) => {
+							const color = tripColorMap[trip.id] ?? Colors.primary;
+							const photoCount = (photosByTrip[trip.id] ?? []).length;
+							return (
+								<TouchableOpacity
+									key={trip.id}
+									style={styles.tripChip}
+									onPress={() => handleTripPinPress(trip.id)}
+									activeOpacity={0.8}
+								>
+									<View
+										style={[styles.tripChipDot, { backgroundColor: color }]}
+									/>
+									<Text style={styles.tripChipTitle} numberOfLines={1}>
+										{trip.title ?? "無題"}
+									</Text>
+									{photoCount > 0 && (
+										<View
+											style={[styles.tripChipBadge, { backgroundColor: color }]}
+										>
+											<Text style={styles.tripChipBadgeText}>{photoCount}</Text>
+										</View>
+									)}
+								</TouchableOpacity>
+							);
+						})}
+					</ScrollView>
+				)
 			)}
 
 			{/* 全旅行表示ボタン（旅行未選択時のみ表示） */}
@@ -547,48 +604,47 @@ export default function MapScreen() {
 
 			{/* 下部パネル: 写真のみ */}
 			<View style={styles.bottomPanel}>
-				{selectedTrip ? (
-					selectedPhotos.length > 0 ? (
-						<FlatList
-							ref={photoListRef}
-							data={selectedPhotos}
-							keyExtractor={(item) => String(item.id)}
-							renderItem={renderPhotoCard}
-							horizontal
-							showsHorizontalScrollIndicator={false}
-							contentContainerStyle={styles.photoList}
-							ItemSeparatorComponent={() => (
-								<View style={styles.photoSeparator} />
-							)}
-							onViewableItemsChanged={onViewableItemsChanged}
-							viewabilityConfig={viewabilityConfig}
-							extraData={focusedPhotoId}
-							getItemLayout={(_, index) => ({
-								length: PHOTO_CARD_WIDTH + 10,
-								offset: (PHOTO_CARD_WIDTH + 10) * index,
-								index,
-							})}
-						/>
-					) : (
-						<View style={styles.noPhotos}>
+				{(() => {
+					const displayPhotos = selectedTrip ? selectedPhotos : allPhotosSorted;
+					if (displayPhotos.length > 0) {
+						return (
+							<FlatList
+								ref={photoListRef}
+								data={displayPhotos}
+								keyExtractor={(item) => String(item.id)}
+								renderItem={renderPhotoCard}
+								horizontal
+								showsHorizontalScrollIndicator={false}
+								contentContainerStyle={styles.photoList}
+								ItemSeparatorComponent={() => (
+									<View style={styles.photoSeparator} />
+								)}
+								onViewableItemsChanged={onViewableItemsChanged}
+								viewabilityConfig={viewabilityConfig}
+								extraData={focusedPhotoId}
+								getItemLayout={(_, index) => ({
+									length: PHOTO_CARD_WIDTH + 10,
+									offset: (PHOTO_CARD_WIDTH + 10) * index,
+									index,
+								})}
+							/>
+						);
+					}
+					return (
+						<View style={styles.emptyPanel}>
 							<Ionicons
-								name="camera-outline"
-								size={24}
+								name={trips.length > 0 ? "camera-outline" : "map-outline"}
+								size={28}
 								color={Colors.grayLight}
 							/>
-							<Text style={styles.noPhotosText}>まだ写真がありません</Text>
+							<Text style={styles.emptyPanelText}>
+								{trips.length > 0
+									? "まだ写真がありません"
+									: "旅行がまだありません"}
+							</Text>
 						</View>
-					)
-				) : (
-					<View style={styles.emptyPanel}>
-						<Ionicons name="map-outline" size={28} color={Colors.grayLight} />
-						<Text style={styles.emptyPanelText}>
-							{trips.length > 0
-								? "旅行のピンをタップして写真を見よう"
-								: "旅行がまだありません"}
-						</Text>
-					</View>
-				)}
+					);
+				})()}
 			</View>
 		</View>
 	);
@@ -698,7 +754,57 @@ const styles = StyleSheet.create({
 		borderRadius: 14,
 	},
 
-	/* 上部オーバーレイ */
+	/* 旅行チップリスト（通常状態） */
+	tripChipList: {
+		position: "absolute",
+		left: 0,
+		right: 0,
+		zIndex: 10,
+	},
+	tripChipListContent: {
+		paddingHorizontal: 12,
+		gap: 8,
+	},
+	tripChip: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: "rgba(255,255,255,0.95)",
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		borderRadius: 20,
+		gap: 6,
+		shadowColor: Colors.black,
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.15,
+		shadowRadius: 4,
+		elevation: 3,
+	},
+	tripChipDot: {
+		width: 8,
+		height: 8,
+		borderRadius: 4,
+	},
+	tripChipTitle: {
+		fontSize: 13,
+		fontWeight: "600",
+		color: Colors.black,
+		maxWidth: 120,
+	},
+	tripChipBadge: {
+		minWidth: 18,
+		height: 18,
+		borderRadius: 9,
+		justifyContent: "center",
+		alignItems: "center",
+		paddingHorizontal: 4,
+	},
+	tripChipBadgeText: {
+		fontSize: 10,
+		fontWeight: "700",
+		color: Colors.white,
+	},
+
+	/* 上部オーバーレイ（旅行選択時） */
 	tripInfoOverlay: {
 		position: "absolute",
 		top: 12,
