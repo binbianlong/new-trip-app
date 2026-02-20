@@ -6,10 +6,7 @@ export default function RootLayout() {
 		<Stack screenOptions={{ headerShown: false }}>
 			<Stack.Screen name="(tabs)" options={{ title: "" }} />
 			<Stack.Screen name="login" options={{ headerShown: false }} />
-			<Stack.Screen
-				name="onboarding"
-				options={{ headerShown: true, title: "ユーザー情報入力" }}
-			/>
+
 			<Stack.Screen
 				name="create"
 				options={{ headerShown: true, title: "旅行プラン作成" }}
