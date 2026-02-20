@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "../../src/constants/colors";
+import { Ionicons } from "@expo/vector-icons";
 
 // 仮の旅行詳細データ
 const mockTripDetail = {
@@ -17,16 +18,17 @@ export default function TripDetailScreen() {
 
 	return (
 		<View style={styles.container}>
+			
 			{/* タイトル */}
 			<Text style={styles.title}>{mockTripDetail.title}</Text>
-			<Text style={styles.tripId}>ID: {id}</Text>
 
 			{/* 参加者 */}
 			<Text style={styles.sectionLabel}>参加者</Text>
 			<View style={styles.participants}>
-				{mockTripDetail.participants.map((name) => (
-					<View key={name} style={styles.participantChip}>
-						<Text style={styles.participantText}>{name}</Text>
+				{mockTripDetail.participants.map((participant, index) => (
+					<View key={index} style={styles.participantContainer}> 
+						<View style={styles.participantCircle} /> 
+						<Text style={styles.participantName}>{participant}</Text>
 					</View>
 				))}
 			</View>
@@ -57,7 +59,7 @@ const styles = StyleSheet.create({
 		padding: 24,
 	},
 	title: {
-		fontSize: 24,
+		fontSize: 36,
 		fontWeight: "bold",
 		color: Colors.black,
 	},
@@ -68,7 +70,7 @@ const styles = StyleSheet.create({
 		marginBottom: 24,
 	},
 	sectionLabel: {
-		fontSize: 14,
+		fontSize: 18,
 		fontWeight: "600",
 		color: Colors.gray,
 		marginBottom: 8,
@@ -79,31 +81,44 @@ const styles = StyleSheet.create({
 		color: Colors.black,
 	},
 	participants: {
-		flexDirection: "row",
-		flexWrap: "wrap",
-		gap: 8,
-	},
-	participantChip: {
-		backgroundColor: Colors.grayLighter,
-		borderRadius: 16,
-		paddingVertical: 6,
-		paddingHorizontal: 12,
-	},
-	participantText: {
-		fontSize: 14,
-		color: Colors.black,
-	},
+        flexDirection: "row", // 参加者同士は横に並べる
+        flexWrap: "wrap",
+        gap: 16,               // 参加者ごとの間隔
+    },
+    participantContainer: {
+        alignItems: "center", // 中身（丸と名前）を中央に揃える
+    },
+    participantCircle: {
+        width: 48,            // 丸の幅
+        height: 48,           // 丸の高さ
+        borderRadius: 24,     // 半分の数値で正円にする
+        backgroundColor: Colors.grayLighter, // 丸の色
+        marginBottom: 4,      // 丸と下の名前の間の隙間
+    },
+    participantName: {
+        fontSize: 12,
+        color: Colors.black,
+    },
 	startButton: {
-		backgroundColor: Colors.primary,
-		borderRadius: 8,
-		paddingVertical: 16,
-		alignItems: "center",
-		marginTop: "auto",
-		marginBottom: 16,
-	},
-	startButtonText: {
-		color: Colors.white,
-		fontSize: 18,
-		fontWeight: "bold",
-	},
+        backgroundColor: "#C6FFCA",
+        borderRadius: 100,
+        paddingVertical: 16,
+        alignItems: "center",
+        marginTop: "auto",
+        marginBottom: 16,
+        paddingHorizontal: 32,
+		shadowColor: "#000",
+    	shadowOffset: {
+        	width: 0,
+        	height: 4,
+    	},
+    	shadowOpacity: 0.3,
+    	shadowRadius: 4.65,
+    	elevation: 8,
+    },
+    startButtonText: {
+        color: Colors.black,
+        fontSize: 36,
+        fontWeight: "bold",
+    },
 });
