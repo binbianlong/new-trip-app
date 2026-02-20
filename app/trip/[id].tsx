@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, type SubmitHandler, useForm } from "react-hook-form";
 import {
 	Image,
 	KeyboardAvoidingView,
@@ -49,8 +49,8 @@ export default function TripDetailModal() {
 		formState: { errors },
 	} = useForm<TripFormData>({
 		defaultValues: {
-			title: trip.title,
-			start_date: trip.start_date,
+			title: trip.title ?? "",
+			start_date: trip.start_date ?? "",
 			memo: trip.memo ?? "",
 		},
 	});
@@ -65,7 +65,7 @@ export default function TripDetailModal() {
 	};
 
 	// 編集内容を保存（TODO: DB更新）
-	const onSave = (data: TripFormData) => {
+	const onSave: SubmitHandler<TripFormData> = (data) => {
 		console.log("更新データ:", data);
 		setIsEditing(false);
 	};
@@ -163,7 +163,7 @@ export default function TripDetailModal() {
 								) : (
 									<View style={styles.avatarFallback}>
 										<Text style={styles.avatarInitial}>
-											{user.profile_name.charAt(0)}
+											{user.profile_name?.charAt(0) ?? "?"}
 										</Text>
 									</View>
 								)}

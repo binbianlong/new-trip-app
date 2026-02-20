@@ -10,7 +10,8 @@ export default function HomeScreen() {
 	const router = useRouter();
 
 	// 日付をフォーマットする関数
-	const formatDate = (dateString: string) => {
+	const formatDate = (dateString: string | null) => {
+		if (!dateString) return "";
 		const date = new Date(dateString);
 		return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 	};
