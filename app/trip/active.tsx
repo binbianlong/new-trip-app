@@ -50,7 +50,7 @@ export default function ActiveTripScreen() {
 					.from("trip_members")
 					.select("user_id")
 					.eq("trip_id", tripId)
-					.is("deletead_at", null),
+					.is("deleted_at", null),
 				supabase
 					.from("photos")
 					.select("*")
@@ -80,16 +80,38 @@ export default function ActiveTripScreen() {
 			);
 			setPhotos(photosResult.data ?? []);
 
-			const userIds = (membersResult.data ?? [])
+			const memberUserIds = (membersResult.data ?? [])
 				.map((m) => m.user_id)
 				.filter((id): id is string => id != null);
+			const userIds = [
+				...new Set(
+					[...memberUserIds, tripResult.data?.owner_user_id].filter(
+						(id): id is string => id != null,
+					),
+				),
+			];
 
 			if (userIds.length > 0) {
 				const { data: users } = await supabase
 					.from("users")
 					.select("*")
 					.in("id", userIds);
-				setParticipants(users ?? []);
+				const usersById = new Map((users ?? []).map((user) => [user.id, user]));
+				const resolvedUsers = userIds.map(
+					(userId) =>
+						usersById.get(userId) ?? {
+							id: userId,
+							username: null,
+							profile_name:
+								userId === tripResult.data?.owner_user_id ? "作成者" : "未設定",
+							email: null,
+							avatar_url: null,
+							created_at: null,
+							updated_at: null,
+							deleted_at: null,
+						},
+				);
+				setParticipants(resolvedUsers);
 			}
 		} catch (error) {
 			console.error("fetchTripData error:", error);

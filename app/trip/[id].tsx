@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { Colors } from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
+import { ensureTripMembers } from "../../src/lib/tripMembers";
 import {
 	fetchTrips,
 	getActiveTripId,
@@ -74,22 +75,44 @@ export default function TripDetailModal() {
 		const { data: members } = await supabase
 			.from("trip_members")
 			.select("user_id")
-			.eq("trip_id", trip.id);
+			.eq("trip_id", trip.id)
+			.is("deleted_at", null);
 
-		const userIds = (members ?? [])
+		const memberUserIds = (members ?? [])
 			.map((m) => m.user_id)
 			.filter((uid): uid is string => uid != null);
+		const userIds = [
+			...new Set(
+				[...memberUserIds, trip.owner_user_id].filter(
+					(uid): uid is string => uid != null,
+				),
+			),
+		];
 
 		if (userIds.length > 0) {
 			const { data: users } = await supabase
 				.from("users")
 				.select("*")
 				.in("id", userIds);
-			setParticipants(users ?? []);
+			const usersById = new Map((users ?? []).map((user) => [user.id, user]));
+			const resolvedUsers = userIds.map(
+				(userId) =>
+					usersById.get(userId) ?? {
+						id: userId,
+						username: null,
+						profile_name: userId === trip.owner_user_id ? "作成者" : "未設定",
+						email: null,
+						avatar_url: null,
+						created_at: null,
+						updated_at: null,
+						deleted_at: null,
+					},
+			);
+			setParticipants(resolvedUsers);
 		} else {
 			setParticipants([]);
 		}
-	}, [trip.id]);
+	}, [trip.id, trip.owner_user_id]);
 
 	useEffect(() => {
 		fetchParticipants();
@@ -272,23 +295,7 @@ export default function TripDetailModal() {
 				.filter((memberId): memberId is number => memberId != null);
 
 			if (participantIdsToAdd.length > 0) {
-				const now = new Date().toISOString();
-				const rowsToInsert = participantIdsToAdd.map((userId) => ({
-					trip_id: trip.id,
-					user_id: userId,
-					joined_at: now,
-				}));
-				const { error: addError } = await supabase
-					.from("trip_members")
-					.insert(rowsToInsert);
-				if (addError) {
-					const isDuplicateError =
-						addError.code === "23505" ||
-						addError.message.includes("duplicate key");
-					if (!isDuplicateError) {
-						throw addError;
-					}
-				}
+				await ensureTripMembers(trip.id, participantIdsToAdd);
 			}
 
 			if (memberRowIdsToRemove.length > 0) {

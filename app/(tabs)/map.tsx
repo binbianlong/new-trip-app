@@ -133,21 +133,43 @@ export default function MapScreen() {
 				.from("trip_members")
 				.select("user_id")
 				.eq("trip_id", selectedTripId)
-				.is("deletead_at", null);
-			const userIds = (members ?? [])
+				.is("deleted_at", null);
+			const memberUserIds = (members ?? [])
 				.map((m) => m.user_id)
 				.filter((uid): uid is string => uid != null);
+			const userIds = [
+				...new Set(
+					[...memberUserIds, selectedTrip?.owner_user_id].filter(
+						(uid): uid is string => uid != null,
+					),
+				),
+			];
 			if (userIds.length > 0) {
 				const { data: users } = await supabase
 					.from("users")
 					.select("*")
 					.in("id", userIds);
-				setSelectedMembers(users ?? []);
+				const usersById = new Map((users ?? []).map((user) => [user.id, user]));
+				const resolvedUsers = userIds.map(
+					(userId) =>
+						usersById.get(userId) ?? {
+							id: userId,
+							username: null,
+							profile_name:
+								userId === selectedTrip?.owner_user_id ? "作成者" : "未設定",
+							email: null,
+							avatar_url: null,
+							created_at: null,
+							updated_at: null,
+							deleted_at: null,
+						},
+				);
+				setSelectedMembers(resolvedUsers);
 			} else {
 				setSelectedMembers([]);
 			}
 		})();
-	}, [selectedTripId]);
+	}, [selectedTrip, selectedTripId]);
 
 	/** 写真を時系列順に並べて経路として使う */
 	const photoRouteByTrip = useMemo(() => {
@@ -187,7 +209,7 @@ export default function MapScreen() {
 				.from("trip_members")
 				.select("trip_id")
 				.eq("user_id", user.id)
-				.is("deletead_at", null);
+				.is("deleted_at", null);
 			const memberTripIds = (memberRows ?? [])
 				.map((r) => r.trip_id)
 				.filter((id): id is string => id != null);
