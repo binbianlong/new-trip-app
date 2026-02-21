@@ -1,0 +1,159 @@
+diff --git a/node_modules/@expo/ngrok/index.js b/node_modules/@expo/ngrok/index.js
+index c9e5f8d..4dd211b 100644
+--- a/node_modules/@expo/ngrok/index.js
++++ b/node_modules/@expo/ngrok/index.js
+@@ -1,84 +1,98 @@
+-const { NgrokClient, NgrokClientError } = require("./src/client");
+-const uuid = require("uuid");
+-const {
+-  getProcess,
+-  getActiveProcess,
+-  killProcess,
+-  setAuthtoken,
+-  getVersion,
+-} = require("./src/process");
+-const { defaults, validate, isRetriable } = require("./src/utils");
++const { spawn } = require("child_process");
+ 
+-let processUrl = null;
+-let ngrokClient = null;
++let cfProcess = null;
++let tunnelUrl = null;
+ 
+ async function connect(opts) {
+-  opts = defaults(opts);
+-  validate(opts);
+-  if (opts.authtoken) {
+-    await setAuthtoken(opts);
+-  }
++  return new Promise((resolve, reject) => {
++    const port = opts.addr || 8081;
+ 
+-  processUrl = await getProcess(opts);
+-  ngrokClient = new NgrokClient(processUrl);
+-  return connectRetry(opts);
+-}
++    cfProcess = spawn("cloudflared", ["tunnel", "--url", `http://localhost:${port}`], {
++      stdio: ["ignore", "pipe", "pipe"],
++    });
++
++    let resolved = false;
++    const timeout = setTimeout(() => {
++      if (!resolved) {
++        resolved = true;
++        reject(new Error("Cloudflare Tunnel の起動がタイムアウトしました。cloudflared がインストールされているか確認してください: brew install cloudflared"));
++      }
++    }, 30000);
+ 
+-async function connectRetry(opts, retryCount = 0) {
+-  opts.name = String(opts.name || uuid.v4());
+-  try {
+-    const response = await ngrokClient.startTunnel(opts);
+-    return response.public_url;
+-  } catch (err) {
+-    if (!isRetriable(err) || retryCount >= 100) {
+-      throw err;
++    function parseLine(line) {
++      if (resolved) return;
++      const match = line.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
++      if (match) {
++        resolved = true;
++        clearTimeout(timeout);
++        tunnelUrl = match[0];
++        resolve(tunnelUrl);
++      }
+     }
+-    await new Promise((resolve) => setTimeout(resolve, 200));
+-    return connectRetry(opts, ++retryCount);
+-  }
++
++    cfProcess.stdout.on("data", (data) => {
++      data.toString().split("\n").forEach(parseLine);
++    });
++    cfProcess.stderr.on("data", (data) => {
++      data.toString().split("\n").forEach(parseLine);
++    });
++
++    cfProcess.on("error", (err) => {
++      if (!resolved) {
++        resolved = true;
++        clearTimeout(timeout);
++        reject(new Error(`cloudflared の起動に失敗しました: ${err.message}\nbrew install cloudflared でインストールしてください`));
++      }
++    });
++
++    cfProcess.on("exit", (code) => {
++      if (!resolved) {
++        resolved = true;
++        clearTimeout(timeout);
++        reject(new Error(`cloudflared が予期せず終了しました (code: ${code})`));
++      }
++    });
++  });
+ }
+ 
+-async function disconnect(publicUrl) {
+-  if (!ngrokClient) return;
+-  const tunnels = (await ngrokClient.listTunnels()).tunnels;
+-  if (!publicUrl) {
+-    const disconnectAll = tunnels.map((tunnel) =>
+-      disconnect(tunnel.public_url)
+-    );
+-    return Promise.all(disconnectAll);
+-  }
+-  const tunnelDetails = tunnels.find(
+-    (tunnel) => tunnel.public_url === publicUrl
+-  );
+-  if (!tunnelDetails) {
+-    throw new Error(`there is no tunnel with url: ${publicUrl}`);
+-  }
+-  return ngrokClient.stopTunnel(tunnelDetails.name);
++async function disconnect() {
++  await kill();
+ }
+ 
+ async function kill() {
+-  if (!ngrokClient) return;
+-  await killProcess();
+-  ngrokClient = null;
+-  tunnels = {};
++  if (cfProcess) {
++    cfProcess.kill();
++    cfProcess = null;
++  }
++  tunnelUrl = null;
+ }
+ 
+ function getUrl() {
+-  return processUrl;
++  return tunnelUrl;
+ }
+ 
+ function getApi() {
+-  return ngrokClient;
++  return null;
++}
++
++function getActiveProcess() {
++  return cfProcess;
++}
++
++async function getVersion() {
++  return "cloudflared";
+ }
+ 
++class NgrokClientError extends Error {}
++
+ module.exports = {
+   connect,
+   disconnect,
+-  authtoken: setAuthtoken,
++  authtoken: async () => {},
+   kill,
+   getUrl,
+   getApi,
+   getVersion,
+   getActiveProcess,
+-  NgrokClientError
++  NgrokClientError,
+ };

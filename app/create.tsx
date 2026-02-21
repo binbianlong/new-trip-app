@@ -16,6 +16,7 @@ import {
 	View,
 } from "react-native"; // Alertを追加
 import { Colors } from "../src/constants/colors";
+import { notifyMemberInvited } from "../src/lib/notifications";
 import { supabase } from "../src/lib/supabase";
 import { ensureTripMembers } from "../src/lib/tripMembers";
 import { fetchTrips } from "../src/store/tripStore";
@@ -107,6 +108,13 @@ export default function CreateScreen() {
 			];
 			const uniqueParticipantIds = [...new Set(participantIds)];
 			await ensureTripMembers(createdTrip.id, uniqueParticipantIds);
+
+			if (selectedParticipants.length > 0) {
+				const addedNames = selectedParticipants.map(
+					(p) => p.profile_name ?? p.username ?? "ユーザー",
+				);
+				void notifyMemberInvited(data.title, addedNames);
+			}
 
 			await fetchTrips();
 			Alert.alert("作成完了", "旅行プランを保存しました！");

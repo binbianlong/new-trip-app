@@ -20,6 +20,11 @@ import {
 import MapView, { Marker, type Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
+import {
+	cancelAllTripNotifications,
+	scheduleAnniversary,
+	schedulePhotoReminder,
+} from "../../src/lib/notifications";
 import { supabase } from "../../src/lib/supabase";
 import { fetchTrips, updateTripStatus } from "../../src/store/tripStore";
 import type { Photo, Trip, User } from "../../src/types";
@@ -196,6 +201,10 @@ export default function ActiveTripScreen() {
 
 			await fetchTripData();
 
+			if (trip?.title) {
+				void schedulePhotoReminder(tripId, trip.title);
+			}
+
 			mapRef.current?.animateToRegion(
 				{
 					latitude: lat,
@@ -206,7 +215,7 @@ export default function ActiveTripScreen() {
 				500,
 			);
 		},
-		[tripId, fetchTripData],
+		[tripId, fetchTripData, trip?.title],
 	);
 
 	// --- カメラ撮影 ---
@@ -271,13 +280,18 @@ export default function ActiveTripScreen() {
 
 					if (tripId) {
 						updateTripStatus(tripId, "finished");
+						void cancelAllTripNotifications(tripId);
+
+						if (trip?.title && trip?.start_date) {
+							void scheduleAnniversary(tripId, trip.title, trip.start_date);
+						}
 					}
 					await fetchTrips();
 					router.back();
 				},
 			},
 		]);
-	}, [tripId, router]);
+	}, [tripId, router, trip?.title, trip?.start_date]);
 
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {

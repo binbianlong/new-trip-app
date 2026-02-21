@@ -41,6 +41,12 @@
 				{
 					"locationWhenInUsePermission": "撮影場所を記録するために位置情報を使用します"
 				}
+			],
+			[
+				"expo-notifications",
+				{
+					"sounds": []
+				}
 			]
 		]
 	}
