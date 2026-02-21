@@ -11,7 +11,7 @@ import {
 	View,
 } from "react-native";
 import { supabase } from "../../../src/lib/supabase";
-import SignIn from "../../components/SignIn";
+import SignUp from "../../components/SignUp";
 import { SplashScreen } from "../../components/User/SplashScreen";
 
 export default function App() {
@@ -29,27 +29,7 @@ export default function App() {
 		};
 
 		fetchData();
-
-		// 2. 4秒後にローディングを終了させるタイマー
-		const timer = setTimeout(() => {
-			setIsLoading(false);
-		}, 4000);
-
-		const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-			fetchData();
-		});
-
-		// クリーンアップ関数（コンポーネントが離れる際にタイマーを解除）
-		return () => {
-			clearTimeout(timer);
-			authListener.subscription.unsubscribe();
-		};
 	}, []);
-
-	// 3. ローディング中の画面（4秒間表示される）
-	if (isLoading) {
-		return <SplashScreen />;
-	}
 
 	return (
 		<SafeAreaView style={styles.safeArea}>
@@ -63,18 +43,18 @@ export default function App() {
 					<Text style={styles.logoText}>あしあと</Text>
 				</View>
 
-				{/* ログインフォームコンポーネント */}
-				<SignIn />
+				{/* サインアップフォームコンポーネント */}
+				<SignUp />
 
-				{/* 新規登録への導線 */}
+				{/* ログインへの導線 */}
 				<Pressable
-					onPress={() => router.push("/screens/auth/SignUpScreen")}
+					onPress={() => router.push("/screens/auth/SignInScreen")}
 					style={({ pressed }) => [
 						styles.signUpLink,
 						pressed && { opacity: 0.6 },
 					]}
 				>
-					<Text style={styles.signUpText}>新規登録の方はこちら</Text>
+					<Text style={styles.signUpText}>ログインの方はこちら</Text>
 				</Pressable>
 
 				{/* デバッグ情報（必要なければここを削除してください） */}
