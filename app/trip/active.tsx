@@ -315,19 +315,40 @@ export default function ActiveTripScreen() {
 			];
 			const scale = scrollX.interpolate({
 				inputRange,
-				outputRange: [0.85, 1, 0.85],
+				outputRange: [0.78, 1, 0.78],
 				extrapolate: "clamp",
 			});
 			const opacity = scrollX.interpolate({
 				inputRange,
-				outputRange: [0.6, 1, 0.6],
+				outputRange: [0.35, 1, 0.35],
+				extrapolate: "clamp",
+			});
+			const rotateY = scrollX.interpolate({
+				inputRange,
+				outputRange: ["25deg", "0deg", "-25deg"],
+				extrapolate: "clamp",
+			});
+			const translateY = scrollX.interpolate({
+				inputRange,
+				outputRange: [18, -6, 18],
+				extrapolate: "clamp",
+			});
+			const translateX = scrollX.interpolate({
+				inputRange,
+				outputRange: [20, 0, -20],
 				extrapolate: "clamp",
 			});
 			return (
 				<Animated.View
 					style={{
 						width: CARD_WIDTH,
-						transform: [{ scale }],
+						transform: [
+							{ perspective: 600 },
+							{ scale },
+							{ rotateY },
+							{ translateY },
+							{ translateX },
+						],
 						opacity,
 					}}
 				>
@@ -657,18 +678,23 @@ const styles = StyleSheet.create({
 	},
 	photoCard: {
 		width: CARD_WIDTH,
-		borderRadius: 14,
+		borderRadius: 18,
 		backgroundColor: Colors.white,
 		overflow: "hidden",
-		shadowColor: Colors.black,
-		shadowOffset: { width: 0, height: 3 },
-		shadowOpacity: 0.2,
-		shadowRadius: 6,
-		elevation: 5,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 14 },
+		shadowOpacity: 0.4,
+		shadowRadius: 24,
+		elevation: 16,
+		borderWidth: 0.5,
+		borderColor: "rgba(255,255,255,0.5)",
 	},
 	photoCardImage: {
 		width: "100%",
-		height: CARD_WIDTH * 0.75,
+		height: CARD_WIDTH * 0.78,
+		borderTopLeftRadius: 18,
+		borderTopRightRadius: 18,
+		overflow: "hidden" as const,
 	},
 	photoCardImageFull: {
 		width: "100%",
@@ -683,10 +709,12 @@ const styles = StyleSheet.create({
 	},
 	photoCardDate: {
 		fontSize: 12,
+		fontWeight: "600" as const,
 		color: Colors.gray,
-		paddingHorizontal: 10,
-		paddingVertical: 6,
+		paddingHorizontal: 12,
+		paddingVertical: 8,
 		textAlign: "center" as const,
+		letterSpacing: 0.3,
 	},
 
 	/* 写真ピン */
