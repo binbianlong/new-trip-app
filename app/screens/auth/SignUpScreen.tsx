@@ -11,7 +11,7 @@ import {
 	View,
 } from "react-native";
 import { supabase } from "../../../src/lib/supabase";
-import SignIn from "../../components/SignIn";
+import SignUp from "../../components/SignUp";
 import { SplashScreen } from "../../components/User/SplashScreen";
 
 export default function App() {
@@ -29,44 +29,11 @@ export default function App() {
 		};
 
 		fetchData();
-
-		// 2. 5秒後にローディングを終了させるタイマー
-		const timer = setTimeout(() => {
-			setIsLoading(false);
-		}, 4000);
-
-		const { data: authListener } = supabase.auth.onAuthStateChange(() => {
-			fetchData();
-		});
-
-		// クリーンアップ関数（コンポーネントが離れる際にタイマーを解除）
-		return () => {
-			clearTimeout(timer);
-			authListener.subscription.unsubscribe();
-		};
 	}, []);
 
-	// 3. ローディング中の画面（4秒間表示される）
-	if (isLoading) {
-		return <SplashScreen />;
-	}
-
-	// 4. 4秒経過後の本来の画面
 	return (
 		<View style={{ flex: 1, padding: 16 }}>
-			<SignIn />
-			<Pressable onPress={() => router.push("/screens/auth/SignUpScreen")}>
-				<Text
-					style={{
-						fontSize: 16,
-						fontWeight: "bold",
-						marginTop: 16,
-						color: "#007AFF",
-					}}
-				>
-					新規登録の方はこちら
-				</Text>
-			</Pressable>
+			<SignUp />
 			{claims && (
 				<View
 					style={{
