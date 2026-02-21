@@ -10,12 +10,14 @@ import {
 	subscribe,
 } from "../../src/store/tripStore";
 import type { Trip } from "../../src/types";
+import { SplashScreen } from "../components/User/SplashScreen";
 
 // ホーム画面 - 旅行プランカード一覧
 export default function HomeScreen() {
 	const router = useRouter();
 	const [trips, setTrips] = useState(getTrips);
 	const [activeTripId, setActiveTripId] = useState(getActiveTripId);
+	const [isLoading, setIsLoading] = useState(true); // 2. 初期状態を読み込み中に設定
 
 	// ストアの変更を監視 + 画面フォーカス時に Supabase から再取得
 	useFocusEffect(
@@ -31,6 +33,10 @@ export default function HomeScreen() {
 			return unsubscribe;
 		}, []),
 	);
+
+	if (isLoading) {
+		return <SplashScreen />;
+	}
 
 	const formatDate = (dateString: string | null) => {
 		if (!dateString) return "";
