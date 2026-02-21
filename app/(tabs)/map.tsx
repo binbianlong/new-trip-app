@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
@@ -107,15 +108,28 @@ export default function MapScreen() {
 		[photosByTrip, selectedTripId],
 	);
 
-	/** 全写真を新しい順に並べたもの（通常状態で使用） */
-	const allPhotosSorted = useMemo(
+	/** 完了済みの旅行のみ */
+	const filteredTrips = useMemo(
+		() => trips.filter((t) => t.status === "finished"),
+		[trips],
+	);
+
+	const filteredTripIds = useMemo(
+		() => new Set(filteredTrips.map((t) => t.id)),
+		[filteredTrips],
+	);
+
+	/** フィルター適用済みの写真（新しい順） */
+	const filteredPhotos = useMemo(
 		() =>
-			[...photos].sort(
-				(a, b) =>
-					new Date(b.created_at ?? "").getTime() -
-					new Date(a.created_at ?? "").getTime(),
-			),
-		[photos],
+			photos
+				.filter((p) => filteredTripIds.has(p.trip_id ?? ""))
+				.sort(
+					(a, b) =>
+						new Date(b.created_at ?? "").getTime() -
+						new Date(a.created_at ?? "").getTime(),
+				),
+		[photos, filteredTripIds],
 	);
 
 	const selectedTrip = useMemo(
@@ -238,9 +252,11 @@ export default function MapScreen() {
 		}
 	}, []);
 
-	useEffect(() => {
-		fetchMapData();
-	}, [fetchMapData]);
+	useFocusEffect(
+		useCallback(() => {
+			fetchMapData();
+		}, [fetchMapData]),
+	);
 
 	const handleTripPinPress = useCallback(
 		(tripId: string) => {
@@ -285,7 +301,12 @@ export default function MapScreen() {
 
 	/** 全旅行が収まるようにマップを縮小 */
 	const handleFitAllTrips = useCallback(() => {
-		const positions = Object.values(tripPositions);
+		const allPositions = Object.entries(tripPositions);
+		const positions = (
+			selectedTripId
+				? allPositions
+				: allPositions.filter(([id]) => filteredTripIds.has(id))
+		).map(([, pos]) => pos);
 		if (positions.length === 0) {
 			mapRef.current?.animateToRegion(JAPAN_REGION, 600);
 			return;
@@ -306,7 +327,7 @@ export default function MapScreen() {
 			},
 			600,
 		);
-	}, [tripPositions]);
+	}, [tripPositions, selectedTripId, filteredTripIds]);
 
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
@@ -417,17 +438,23 @@ export default function MapScreen() {
 				onPress={handleMapPress}
 			>
 				{/* 旅行ごとの経路（写真の位置を時系列で結ぶ） */}
-				{Object.entries(photoRouteByTrip).map(([tripId, coords]) => (
-					<Polyline
-						key={tripId}
-						coordinates={coords}
-						strokeColor={tripColorMap[tripId] ?? Colors.primary}
-						strokeWidth={3}
-					/>
-				))}
+				{Object.entries(photoRouteByTrip)
+					.filter(([tripId]) =>
+						selectedTripId
+							? tripId === selectedTripId
+							: filteredTripIds.has(tripId),
+					)
+					.map(([tripId, coords]) => (
+						<Polyline
+							key={tripId}
+							coordinates={coords}
+							strokeColor={tripColorMap[tripId] ?? Colors.primary}
+							strokeWidth={3}
+						/>
+					))}
 
-				{/* 旅行ピン */}
-				{trips.map((trip) => {
+				{/* 旅行ピン（通常時はフィルター適用、選択時は全件表示） */}
+				{(selectedTripId ? trips : filteredTrips).map((trip) => {
 					const pos = tripPositions[trip.id];
 					if (!pos) return null;
 					const color = tripColorMap[trip.id] ?? Colors.primary;
@@ -469,8 +496,8 @@ export default function MapScreen() {
 					);
 				})}
 
-				{/* 写真ピン（通常時は全写真、選択時はその旅行の写真） */}
-				{(selectedTripId ? selectedPhotos : photos)
+				{/* 写真ピン（通常時はフィルター適用済み写真、選択時はその旅行の写真） */}
+				{(selectedTripId ? selectedPhotos : filteredPhotos)
 					.filter((p) => p.lat != null && p.lng != null)
 					.map((photo) => {
 						const color = tripColorMap[photo.trip_id ?? ""] ?? Colors.primary;
@@ -568,14 +595,14 @@ export default function MapScreen() {
 					)}
 				</View>
 			) : (
-				trips.length > 0 && (
+				filteredTrips.length > 0 && (
 					<ScrollView
 						horizontal
 						showsHorizontalScrollIndicator={false}
 						style={[styles.tripChipList, { top: insets.top + 8 }]}
 						contentContainerStyle={styles.tripChipListContent}
 					>
-						{trips.map((trip) => {
+						{filteredTrips.map((trip) => {
 							const color = tripColorMap[trip.id] ?? Colors.primary;
 							const photoCount = (photosByTrip[trip.id] ?? []).length;
 							return (
