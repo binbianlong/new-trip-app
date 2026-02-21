@@ -863,6 +863,63 @@ export default function MapScreen() {
 					})}
 			</MapView>
 
+			{/* スナップショット用タイトルバナー（キャプチャ中のみ表示） */}
+			{isTripSnapshotMode && selectedTrip && (
+				<View style={[styles.snapshotTitleBanner, { top: insets.top + 16 }]}>
+					<View style={styles.snapshotTitleRow}>
+						<View
+							style={[
+								styles.snapshotTitleDot,
+								{
+									backgroundColor:
+										tripColorMap[selectedTrip.id] ?? Colors.primary,
+								},
+							]}
+						/>
+						<Text style={styles.snapshotTitleText} numberOfLines={1}>
+							{selectedTrip.title ?? "無題"}
+						</Text>
+						{selectedTrip.start_date && (
+							<Text style={styles.snapshotTitleDate}>
+								{selectedTrip.start_date}
+								{selectedTrip.end_date ? ` 〜 ${selectedTrip.end_date}` : ""}
+							</Text>
+						)}
+					</View>
+					{selectedMembers.length > 0 && (
+						<View style={styles.snapshotMembersRow}>
+							{selectedMembers.slice(0, 4).map((member, i) => (
+								<View
+									key={member.id}
+									style={[
+										styles.snapshotMemberAvatar,
+										i > 0 && { marginLeft: -6 },
+									]}
+								>
+									{member.avatar_url ? (
+										<Image
+											source={{ uri: member.avatar_url }}
+											style={styles.snapshotMemberAvatarImage}
+										/>
+									) : (
+										<Ionicons name="person" size={10} color={Colors.gray} />
+									)}
+								</View>
+							))}
+							<Text style={styles.snapshotMembersText}>
+								{selectedMembers
+									.slice(0, 3)
+									.map((m) => m.profile_name ?? m.username)
+									.join("・")}
+								{selectedMembers.length > 3
+									? ` 他${selectedMembers.length - 3}名`
+									: ""}
+							</Text>
+						</View>
+					)}
+				</View>
+			)}
+
 			{/* 上部オーバーレイ */}
 			{selectedTrip && !isTripSnapshotMode ? (
 				<View style={[styles.tripInfoOverlay, { top: insets.top + 12 }]}>
@@ -1075,6 +1132,67 @@ const styles = StyleSheet.create({
 	container: {
 		flex: 1,
 		backgroundColor: Colors.white,
+	},
+	snapshotTitleBanner: {
+		position: "absolute",
+		left: 20,
+		right: 20,
+		backgroundColor: "rgba(255,255,255,0.92)",
+		borderRadius: 14,
+		paddingVertical: 12,
+		paddingHorizontal: 16,
+		gap: 8,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.12,
+		shadowRadius: 6,
+		elevation: 4,
+	},
+	snapshotTitleRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	snapshotTitleDot: {
+		width: 10,
+		height: 10,
+		borderRadius: 5,
+	},
+	snapshotTitleText: {
+		fontSize: 16,
+		fontWeight: "700",
+		color: Colors.black,
+		flexShrink: 1,
+	},
+	snapshotTitleDate: {
+		fontSize: 12,
+		color: Colors.gray,
+		marginLeft: "auto",
+	},
+	snapshotMembersRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+	},
+	snapshotMemberAvatar: {
+		width: 22,
+		height: 22,
+		borderRadius: 11,
+		backgroundColor: Colors.grayLighter,
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1.5,
+		borderColor: "rgba(255,255,255,0.92)",
+	},
+	snapshotMemberAvatarImage: {
+		width: "100%",
+		height: "100%",
+		borderRadius: 11,
+	},
+	snapshotMembersText: {
+		fontSize: 12,
+		color: Colors.gray,
+		marginLeft: 2,
 	},
 	loadingContainer: {
 		flex: 1,
