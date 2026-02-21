@@ -1310,11 +1310,6 @@ export default function TripDetailModal() {
 					<View style={styles.field}>
 						<View style={styles.highlightHeaderRow}>
 							<Text style={styles.label}>旅のハイライト</Text>
-							<Text style={styles.highlightCounter}>
-								{tripPhotos.length > 0
-									? `${highlightIndex + 1}/${tripPhotos.length}`
-									: "0/0"}
-							</Text>
 						</View>
 
 						{isPhotosLoading ? (
@@ -1355,7 +1350,7 @@ export default function TripDetailModal() {
 				{/* 完了済み旅行のテーマ音楽 */}
 				{!isEditing && isThisTripFinished && (
 					<View style={styles.field}>
-						<Text style={styles.label}>テーマ音楽（30秒）</Text>
+						<Text style={styles.label}>テーマ音楽</Text>
 
 						{trip.theme_music_title && trip.theme_music_preview_url ? (
 							<View style={styles.themeCard}>
@@ -2157,11 +2152,6 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "space-between",
-	},
-	highlightCounter: {
-		fontSize: 12,
-		fontWeight: "700",
-		color: "#2A7B4C",
 	},
 	highlightLoadingBox: {
 		height: 180,
