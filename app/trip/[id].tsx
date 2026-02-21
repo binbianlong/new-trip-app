@@ -1,5 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import {
+	Audio,
+	type AVPlaybackStatus,
+	InterruptionModeAndroid,
+	InterruptionModeIOS,
+} from "expo-av";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Controller, type SubmitHandler, useForm } from "react-hook-form";
@@ -10,6 +16,7 @@ import {
 	Easing,
 	Image,
 	KeyboardAvoidingView,
+	Linking,
 	Modal,
 	Platform,
 	Pressable,
@@ -17,6 +24,7 @@ import {
 	StyleSheet,
 	Text,
 	TextInput,
+	useWindowDimensions,
 	View,
 } from "react-native";
 import { Colors } from "../../src/constants/colors";
@@ -40,10 +48,83 @@ type TripFormData = {
 	memo: string;
 };
 
+type ItunesSearchTrack = {
+	trackId: number;
+	trackName: string;
+	artistName: string;
+	previewUrl: string;
+	artworkUrl100?: string | null;
+	trackViewUrl?: string | null;
+};
+
+type ItunesSearchResponse = {
+	results?: ItunesSearchTrack[];
+};
+
+const ITUNES_SEARCH_FUNCTION_NAME =
+	process.env.EXPO_PUBLIC_ITUNES_SEARCH_FUNCTION_NAME ?? "itunes-search";
+
+function getErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+
+	if (typeof error === "object" && error != null) {
+		const e = error as {
+			message?: string;
+			code?: string;
+			details?: string;
+			hint?: string;
+		};
+		const message = e.message ?? "不明なエラー";
+		const parts = [message];
+		if (e.code) parts.push(`code=${e.code}`);
+		if (e.details) parts.push(`details=${e.details}`);
+		if (e.hint) parts.push(`hint=${e.hint}`);
+		return parts.join("\n");
+	}
+
+	return "不明なエラー";
+}
+
+async function getEdgeFunctionErrorDetail(error: unknown): Promise<string> {
+	const fallback = getErrorMessage(error);
+
+	if (
+		typeof error !== "object" ||
+		error == null ||
+		!("context" in error) ||
+		!(error.context instanceof Response)
+	) {
+		return fallback;
+	}
+
+	const context = (error as { context: Response }).context;
+	const statusText = `status=${context.status}`;
+
+	try {
+		const text = await context.text();
+		if (!text) {
+			return `${fallback} (${statusText})`;
+		}
+
+		try {
+			const json = JSON.parse(text) as { error?: string; message?: string };
+			const detail = json.error ?? json.message ?? text;
+			return `${detail} (${statusText})`;
+		} catch {
+			return `${text} (${statusText})`;
+		}
+	} catch {
+		return `${fallback} (${statusText})`;
+	}
+}
+
 // 旅行プラン詳細・編集ポップアップ（モーダル）
 export default function TripDetailModal() {
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const router = useRouter();
+	const { height: viewportHeight } = useWindowDimensions();
 
 	// ストアから該当旅行を取得し、変更を監視
 	const [trip, setTrip] = useState(() => getTripById(id) ?? getTrips()[0]);
@@ -78,6 +159,17 @@ export default function TripDetailModal() {
 	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 	// 編集モードの状態管理
 	const [isEditing, setIsEditing] = useState(false);
+	const [isThemeModalVisible, setIsThemeModalVisible] = useState(false);
+	const [themeKeyword, setThemeKeyword] = useState("");
+	const [themeResults, setThemeResults] = useState<ItunesSearchTrack[]>([]);
+	const [isThemeSearching, setIsThemeSearching] = useState(false);
+	const [isThemeSaving, setIsThemeSaving] = useState(false);
+	const [isHighlightMusicLoading, setIsHighlightMusicLoading] = useState(false);
+	const [isHighlightMusicPlaying, setIsHighlightMusicPlaying] = useState(false);
+	const [highlightMusicError, setHighlightMusicError] = useState<string | null>(
+		null,
+	);
+	const highlightSoundRef = useRef<Audio.Sound | null>(null);
 
 	useEffect(() => {
 		void supabase.auth.getUser().then(({ data }) => {
@@ -189,6 +281,8 @@ export default function TripDetailModal() {
 
 	const currentHighlightPhoto = tripPhotos[highlightIndex] ?? null;
 	const currentHighlightKey = currentHighlightPhoto?.id ?? null;
+	const isCompactHighlight = viewportHeight <= 700;
+	const highlightStageHeight = isCompactHighlight ? 300 : 430;
 	const highlightModalOpacity = modalProgress.interpolate({
 		inputRange: [0, 1],
 		outputRange: [0, 1],
@@ -264,6 +358,12 @@ export default function TripDetailModal() {
 		}
 	}, [isEditing, isThisTripFinished]);
 
+	useEffect(() => {
+		if (!isThisTripFinished || isEditing) {
+			setIsThemeModalVisible(false);
+		}
+	}, [isEditing, isThisTripFinished]);
+
 	const openHighlightModal = useCallback(() => {
 		if (tripPhotos.length === 0 || isPhotosLoading) return;
 		setIsHighlightModalVisible(true);
@@ -281,6 +381,142 @@ export default function TripDetailModal() {
 			setHighlightModalReady(false);
 		});
 	}, [modalProgress]);
+
+	const unloadHighlightSound = useCallback(async () => {
+		const sound = highlightSoundRef.current;
+		highlightSoundRef.current = null;
+		setIsHighlightMusicPlaying(false);
+		setIsHighlightMusicLoading(false);
+		if (!sound) return;
+
+		try {
+			sound.setOnPlaybackStatusUpdate(null);
+			await sound.stopAsync();
+			await sound.unloadAsync();
+		} catch (error) {
+			console.error("unloadHighlightSound error:", error);
+		}
+	}, []);
+
+	const ensureHighlightSound = useCallback(async (previewUrl: string) => {
+		const current = highlightSoundRef.current;
+		if (current) return current;
+
+		await Audio.setAudioModeAsync({
+			playsInSilentModeIOS: true,
+			staysActiveInBackground: false,
+			shouldDuckAndroid: true,
+			playThroughEarpieceAndroid: false,
+			interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+			interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+		});
+
+		const { sound } = await Audio.Sound.createAsync(
+			{ uri: previewUrl },
+			{
+				shouldPlay: false,
+				positionMillis: 0,
+				progressUpdateIntervalMillis: 300,
+			},
+			(status: AVPlaybackStatus) => {
+				if (!status.isLoaded) return;
+
+				if (status.didJustFinish) {
+					setIsHighlightMusicPlaying(false);
+					void highlightSoundRef.current?.setPositionAsync(0);
+					return;
+				}
+
+				setIsHighlightMusicPlaying(Boolean(status.isPlaying));
+			},
+		);
+
+		highlightSoundRef.current = sound;
+		return sound;
+	}, []);
+
+	const playHighlightThemeMusic = useCallback(
+		async (fromStart = false) => {
+			const previewUrl = trip.theme_music_preview_url;
+			if (!previewUrl) return;
+
+			setHighlightMusicError(null);
+			setIsHighlightMusicLoading(true);
+			try {
+				const sound = await ensureHighlightSound(previewUrl);
+				if (fromStart) {
+					await sound.setPositionAsync(0);
+				}
+				await sound.playAsync();
+				setIsHighlightMusicPlaying(true);
+			} catch (error) {
+				console.error("playHighlightThemeMusic error:", error);
+				const message = getErrorMessage(error);
+				setHighlightMusicError(message);
+				Alert.alert("再生エラー", `テーマ音楽の再生に失敗しました\n${message}`);
+			} finally {
+				setIsHighlightMusicLoading(false);
+			}
+		},
+		[ensureHighlightSound, trip.theme_music_preview_url],
+	);
+
+	const pauseHighlightThemeMusic = useCallback(async () => {
+		const sound = highlightSoundRef.current;
+		if (!sound) return;
+
+		try {
+			await sound.pauseAsync();
+			setIsHighlightMusicPlaying(false);
+		} catch (error) {
+			console.error("pauseHighlightThemeMusic error:", error);
+		}
+	}, []);
+
+	const toggleHighlightThemeMusic = useCallback(async () => {
+		if (isHighlightMusicLoading) return;
+		if (isHighlightMusicPlaying) {
+			await pauseHighlightThemeMusic();
+			return;
+		}
+		await playHighlightThemeMusic(false);
+	}, [
+		isHighlightMusicLoading,
+		isHighlightMusicPlaying,
+		pauseHighlightThemeMusic,
+		playHighlightThemeMusic,
+	]);
+
+	useEffect(() => {
+		if (!isHighlightModalVisible) {
+			void unloadHighlightSound();
+			return;
+		}
+
+		if (!trip.theme_music_preview_url) {
+			setHighlightMusicError("テーマ音楽が未設定です");
+			return;
+		}
+
+		void playHighlightThemeMusic(true);
+	}, [
+		isHighlightModalVisible,
+		playHighlightThemeMusic,
+		trip.theme_music_preview_url,
+		unloadHighlightSound,
+	]);
+
+	useEffect(() => {
+		return () => {
+			void unloadHighlightSound();
+		};
+	}, [unloadHighlightSound]);
+
+	const openThemeModal = useCallback(() => {
+		setThemeKeyword("");
+		setThemeResults([]);
+		setIsThemeModalVisible(true);
+	}, []);
 
 	useEffect(() => {
 		if (!isEditing) {
@@ -489,6 +725,178 @@ export default function TripDetailModal() {
 			setIsSaving(false);
 		}
 	};
+
+	const openExternalUrl = useCallback(
+		async (url: string | null | undefined, fallbackMessage: string) => {
+			if (!url) {
+				Alert.alert("未設定", "リンクが見つかりませんでした");
+				return;
+			}
+
+			try {
+				const canOpen = await Linking.canOpenURL(url);
+				if (!canOpen) {
+					Alert.alert("エラー", fallbackMessage);
+					return;
+				}
+				await Linking.openURL(url);
+			} catch (error) {
+				console.error("openExternalUrl error:", error);
+				Alert.alert("エラー", fallbackMessage);
+			}
+		},
+		[],
+	);
+
+	const handleSearchThemeMusic = useCallback(async () => {
+		const query = themeKeyword.trim();
+		if (query.length < 2) {
+			Alert.alert("入力不足", "2文字以上で検索してください");
+			return;
+		}
+
+		setIsThemeSearching(true);
+		try {
+			const {
+				data: { session },
+			} = await supabase.auth.getSession();
+
+			const { data, error } =
+				await supabase.functions.invoke<ItunesSearchResponse>(
+					ITUNES_SEARCH_FUNCTION_NAME,
+					{
+						headers: session?.access_token
+							? { Authorization: `Bearer ${session.access_token}` }
+							: undefined,
+						body: {
+							query,
+							country: "JP",
+							limit: 12,
+						},
+					},
+				);
+
+			if (error) {
+				throw error;
+			}
+
+			const tracks = (data?.results ?? []).filter(
+				(track): track is ItunesSearchTrack =>
+					typeof track.trackId === "number" &&
+					typeof track.trackName === "string" &&
+					typeof track.artistName === "string" &&
+					typeof track.previewUrl === "string" &&
+					track.previewUrl.length > 0,
+			);
+
+			setThemeResults(tracks);
+			if (tracks.length === 0) {
+				Alert.alert("検索結果なし", "別のキーワードで再検索してください");
+			}
+		} catch (error) {
+			console.error("handleSearchThemeMusic error:", error);
+			const detail = await getEdgeFunctionErrorDetail(error);
+			Alert.alert(
+				"検索エラー",
+				`曲の検索に失敗しました\nfunction=${ITUNES_SEARCH_FUNCTION_NAME}\n${detail}`,
+			);
+		} finally {
+			setIsThemeSearching(false);
+		}
+	}, [themeKeyword]);
+
+	const handleSelectThemeMusic = useCallback(
+		async (track: ItunesSearchTrack) => {
+			setIsThemeSaving(true);
+			try {
+				const updates = {
+					theme_music_provider: "itunes",
+					theme_music_track_id: track.trackId,
+					theme_music_title: track.trackName,
+					theme_music_artist: track.artistName,
+					theme_music_preview_url: track.previewUrl,
+					theme_music_artwork_url: track.artworkUrl100 ?? null,
+					theme_music_track_view_url: track.trackViewUrl ?? null,
+					theme_music_set_at: new Date().toISOString(),
+				};
+
+				const { error } = await supabase
+					.from("trips")
+					.update(updates)
+					.eq("id", trip.id)
+					.eq("status", "finished");
+
+				if (error) {
+					throw error;
+				}
+
+				setTrip((prev) => (prev ? { ...prev, ...updates } : prev));
+				await fetchTrips();
+				setIsThemeModalVisible(false);
+				Alert.alert("設定完了", "テーマ音楽を設定しました");
+			} catch (error) {
+				console.error("handleSelectThemeMusic error:", error);
+				Alert.alert(
+					"保存エラー",
+					`テーマ音楽の保存に失敗しました\n${getErrorMessage(error)}`,
+				);
+			} finally {
+				setIsThemeSaving(false);
+			}
+		},
+		[trip.id],
+	);
+
+	const handleClearThemeMusic = useCallback(() => {
+		Alert.alert(
+			"テーマ音楽を解除",
+			"この旅行のテーマ音楽設定を解除しますか？",
+			[
+				{ text: "キャンセル", style: "cancel" },
+				{
+					text: "解除する",
+					style: "destructive",
+					onPress: async () => {
+						setIsThemeSaving(true);
+						try {
+							const updates = {
+								theme_music_provider: null,
+								theme_music_track_id: null,
+								theme_music_title: null,
+								theme_music_artist: null,
+								theme_music_preview_url: null,
+								theme_music_artwork_url: null,
+								theme_music_track_view_url: null,
+								theme_music_set_at: null,
+							};
+
+							const { error } = await supabase
+								.from("trips")
+								.update(updates)
+								.eq("id", trip.id)
+								.eq("status", "finished");
+
+							if (error) {
+								throw error;
+							}
+
+							setTrip((prev) => (prev ? { ...prev, ...updates } : prev));
+							await fetchTrips();
+							Alert.alert("解除完了", "テーマ音楽を解除しました");
+						} catch (error) {
+							console.error("handleClearThemeMusic error:", error);
+							Alert.alert(
+								"解除エラー",
+								`テーマ音楽の解除に失敗しました\n${getErrorMessage(error)}`,
+							);
+						} finally {
+							setIsThemeSaving(false);
+						}
+					},
+				},
+			],
+		);
+	}, [trip.id]);
 
 	return (
 		<KeyboardAvoidingView
@@ -772,12 +1180,12 @@ export default function TripDetailModal() {
 								onPress={openHighlightModal}
 							>
 								<View style={styles.highlightLaunchLeft}>
-									<Ionicons name="sparkles" size={18} color={Colors.white} />
+									<Ionicons name="sparkles" size={18} color="#2D9A5F" />
 									<Text style={styles.highlightLaunchTitle}>
 										全画面ハイライトを見る
 									</Text>
 								</View>
-								<Ionicons name="expand" size={20} color={Colors.white} />
+								<Ionicons name="expand" size={20} color="#2D9A5F" />
 							</Pressable>
 						) : (
 							<View style={styles.highlightEmptyBox}>
@@ -790,6 +1198,116 @@ export default function TripDetailModal() {
 									この旅行の写真はまだありません
 								</Text>
 							</View>
+						)}
+					</View>
+				)}
+
+				{/* 完了済み旅行のテーマ音楽 */}
+				{!isEditing && isThisTripFinished && (
+					<View style={styles.field}>
+						<Text style={styles.label}>テーマ音楽（30秒）</Text>
+
+						{trip.theme_music_title && trip.theme_music_preview_url ? (
+							<View style={styles.themeCard}>
+								<View style={styles.themeCardTop}>
+									{trip.theme_music_artwork_url ? (
+										<Image
+											source={{ uri: trip.theme_music_artwork_url }}
+											style={styles.themeArtwork}
+										/>
+									) : (
+										<View style={styles.themeArtworkFallback}>
+											<Ionicons
+												name="musical-notes-outline"
+												size={20}
+												color={Colors.white}
+											/>
+										</View>
+									)}
+									<View style={styles.themeMeta}>
+										<Text style={styles.themeTitle} numberOfLines={1}>
+											{trip.theme_music_title}
+										</Text>
+										<Text style={styles.themeArtist} numberOfLines={1}>
+											{trip.theme_music_artist ?? "アーティスト不明"}
+										</Text>
+									</View>
+								</View>
+
+								<View style={styles.themeActionRow}>
+									<Pressable
+										style={styles.themeActionButton}
+										onPress={() => {
+											void openExternalUrl(
+												trip.theme_music_preview_url,
+												"プレビューを開けませんでした",
+											);
+										}}
+									>
+										<Ionicons
+											name="play-circle-outline"
+											size={16}
+											color={Colors.primary}
+										/>
+										<Text style={styles.themeActionButtonText}>試聴</Text>
+									</Pressable>
+									<Pressable
+										style={styles.themeActionButton}
+										onPress={() => {
+											void openExternalUrl(
+												trip.theme_music_track_view_url,
+												"iTunesを開けませんでした",
+											);
+										}}
+										disabled={!trip.theme_music_track_view_url}
+									>
+										<Ionicons
+											name="open-outline"
+											size={16}
+											color={Colors.primary}
+										/>
+										<Text style={styles.themeActionButtonText}>
+											iTunesで開く
+										</Text>
+									</Pressable>
+								</View>
+
+								<View style={styles.themeManageRow}>
+									<Pressable
+										style={styles.themeSecondaryButton}
+										onPress={openThemeModal}
+									>
+										<Text style={styles.themeSecondaryButtonText}>変更</Text>
+									</Pressable>
+									<Pressable
+										style={[
+											styles.themeDangerButton,
+											isThemeSaving && styles.themeButtonDisabled,
+										]}
+										onPress={handleClearThemeMusic}
+										disabled={isThemeSaving}
+									>
+										<Text style={styles.themeDangerButtonText}>
+											{isThemeSaving ? "処理中..." : "解除"}
+										</Text>
+									</Pressable>
+								</View>
+
+								<Text style={styles.themeAttribution}>
+									provided courtesy of iTunes
+								</Text>
+							</View>
+						) : (
+							<Pressable style={styles.themeSetButton} onPress={openThemeModal}>
+								<Ionicons
+									name="search-outline"
+									size={18}
+									color={Colors.primary}
+								/>
+								<Text style={styles.themeSetButtonText}>
+									曲を検索してテーマ音楽を設定
+								</Text>
+							</Pressable>
 						)}
 					</View>
 				)}
@@ -862,7 +1380,12 @@ export default function TripDetailModal() {
 				animationType="none"
 				onRequestClose={closeHighlightModal}
 			>
-				<View style={styles.highlightModalOverlay}>
+				<View
+					style={[
+						styles.highlightModalOverlay,
+						isCompactHighlight && styles.highlightModalOverlayCompact,
+					]}
+				>
 					<Animated.View
 						pointerEvents="none"
 						style={[
@@ -901,6 +1424,7 @@ export default function TripDetailModal() {
 					<Animated.View
 						style={[
 							styles.highlightModalBody,
+							isCompactHighlight && styles.highlightModalBodyCompact,
 							{
 								opacity: highlightModalOpacity,
 								transform: [
@@ -910,142 +1434,342 @@ export default function TripDetailModal() {
 							},
 						]}
 					>
-						<View style={styles.highlightModalHeader}>
-							<Text style={styles.highlightModalTitle}>TRIP HIGHLIGHTS</Text>
-							<Pressable
-								onPress={closeHighlightModal}
-								style={styles.highlightModalClose}
+						<ScrollView
+							style={styles.highlightModalScroll}
+							contentContainerStyle={[
+								styles.highlightModalScrollContent,
+								isCompactHighlight && styles.highlightModalScrollContentCompact,
+							]}
+							showsVerticalScrollIndicator={false}
+							bounces={false}
+						>
+							<View style={styles.highlightModalHeader}>
+								<Text style={styles.highlightModalTitle}>TRIP HIGHLIGHTS</Text>
+								<Pressable
+									onPress={closeHighlightModal}
+									style={styles.highlightModalClose}
+								>
+									<Ionicons name="close" size={20} color="#1E6A3C" />
+								</Pressable>
+							</View>
+
+							<View
+								style={[
+									styles.highlightMusicRow,
+									isCompactHighlight && styles.highlightMusicRowCompact,
+								]}
 							>
-								<Ionicons name="close" size={20} color={Colors.white} />
+								<View style={styles.highlightMusicMeta}>
+									<Text style={styles.highlightMusicLabel}>Theme Music</Text>
+									<Text style={styles.highlightMusicTitle} numberOfLines={1}>
+										{trip.theme_music_title ?? "未設定"}
+									</Text>
+								</View>
+								<Pressable
+									style={[
+										styles.highlightMusicButton,
+										(!trip.theme_music_preview_url ||
+											isHighlightMusicLoading) &&
+											styles.themeButtonDisabled,
+									]}
+									onPress={() => {
+										void toggleHighlightThemeMusic();
+									}}
+									disabled={
+										!trip.theme_music_preview_url || isHighlightMusicLoading
+									}
+								>
+									{isHighlightMusicLoading ? (
+										<ActivityIndicator size="small" color={Colors.white} />
+									) : (
+										<Ionicons
+											name={
+												isHighlightMusicPlaying
+													? "pause-circle-outline"
+													: "play-circle-outline"
+											}
+											size={18}
+											color={Colors.white}
+										/>
+									)}
+									<Text style={styles.highlightMusicButtonText}>
+										{isHighlightMusicPlaying ? "一時停止" : "再生"}
+									</Text>
+								</Pressable>
+							</View>
+							{highlightMusicError ? (
+								<Text style={styles.highlightMusicError} numberOfLines={2}>
+									{highlightMusicError}
+								</Text>
+							) : null}
+
+							{tripPhotos.length > 0 ? (
+								<>
+									<View
+										style={[
+											styles.highlightStageWrap,
+											{ height: highlightStageHeight },
+											isCompactHighlight && styles.highlightStageWrapCompact,
+										]}
+									>
+										<Pressable
+											onPress={() => moveHighlight(-1)}
+											style={[
+												styles.highlightStageNavLeft,
+												isCompactHighlight && styles.highlightStageNavCompact,
+											]}
+											hitSlop={10}
+										>
+											<Ionicons
+												name="chevron-back"
+												size={isCompactHighlight ? 24 : 28}
+												color="#1E6A3C"
+											/>
+										</Pressable>
+										<Animated.View
+											style={[
+												styles.highlightStageCard,
+												isCompactHighlight && styles.highlightStageCardCompact,
+												{
+													opacity: highlightAnim,
+													transform: [
+														{ perspective: 920 },
+														{
+															rotateY: highlightAnim.interpolate({
+																inputRange: [0.88, 1],
+																outputRange: ["14deg", "0deg"],
+															}),
+														},
+														{ scale: highlightAnim },
+													],
+												},
+											]}
+										>
+											{currentHighlightPhoto?.image_url ? (
+												<Image
+													source={{ uri: currentHighlightPhoto.image_url }}
+													style={styles.highlightStageImage}
+												/>
+											) : (
+												<View style={styles.highlightStagePlaceholder}>
+													<Ionicons
+														name="image-outline"
+														size={42}
+														color={Colors.grayLight}
+													/>
+												</View>
+											)}
+										</Animated.View>
+										<Pressable
+											onPress={() => moveHighlight(1)}
+											style={[
+												styles.highlightStageNavRight,
+												isCompactHighlight && styles.highlightStageNavCompact,
+											]}
+											hitSlop={10}
+										>
+											<Ionicons
+												name="chevron-forward"
+												size={isCompactHighlight ? 24 : 28}
+												color="#1E6A3C"
+											/>
+										</Pressable>
+									</View>
+
+									<View style={styles.highlightMetaRow}>
+										<Text style={styles.highlightMetaCount}>
+											{highlightIndex + 1} / {tripPhotos.length}
+										</Text>
+										{currentHighlightPhoto?.created_at && (
+											<Text style={styles.highlightMetaDate}>
+												{new Date(
+													currentHighlightPhoto.created_at,
+												).toLocaleString("ja-JP", {
+													month: "short",
+													day: "numeric",
+													hour: "2-digit",
+													minute: "2-digit",
+												})}
+											</Text>
+										)}
+									</View>
+
+									<ScrollView
+										horizontal
+										showsHorizontalScrollIndicator={false}
+										contentContainerStyle={styles.highlightThumbList}
+									>
+										{tripPhotos.map((photo, index) => {
+											const isActive = index === highlightIndex;
+											return (
+												<Pressable
+													key={photo.id}
+													onPress={() => setHighlightIndex(index)}
+													style={[
+														styles.highlightThumbButton,
+														isActive && styles.highlightThumbButtonActive,
+													]}
+												>
+													{photo.image_url ? (
+														<Image
+															source={{ uri: photo.image_url }}
+															style={styles.highlightThumbImage}
+														/>
+													) : (
+														<View style={styles.highlightThumbFallback}>
+															<Ionicons
+																name="camera-outline"
+																size={14}
+																color={Colors.gray}
+															/>
+														</View>
+													)}
+												</Pressable>
+											);
+										})}
+									</ScrollView>
+								</>
+							) : (
+								<View style={styles.highlightModalEmpty}>
+									<Ionicons
+										name="camera-outline"
+										size={28}
+										color={Colors.grayLight}
+									/>
+									<Text style={styles.highlightModalEmptyText}>
+										表示できる写真がありません
+									</Text>
+								</View>
+							)}
+						</ScrollView>
+					</Animated.View>
+				</View>
+			</Modal>
+
+			<Modal
+				visible={isThemeModalVisible}
+				transparent
+				animationType="slide"
+				onRequestClose={() => setIsThemeModalVisible(false)}
+			>
+				<View style={styles.themeModalOverlay}>
+					<View style={styles.themeModalBody}>
+						<View style={styles.themeModalHeader}>
+							<Text style={styles.themeModalTitle}>テーマ音楽を選択</Text>
+							<Pressable
+								onPress={() => setIsThemeModalVisible(false)}
+								style={styles.themeModalClose}
+							>
+								<Ionicons name="close" size={20} color={Colors.gray} />
+							</Pressable>
+						</View>
+						<Text style={styles.themeModalCaption}>
+							曲名やアーティスト名で検索して設定できます
+						</Text>
+
+						<View style={styles.themeSearchRow}>
+							<TextInput
+								style={styles.themeSearchInput}
+								placeholder="例: Lemon 米津玄師"
+								placeholderTextColor={Colors.grayLight}
+								value={themeKeyword}
+								onChangeText={setThemeKeyword}
+								returnKeyType="search"
+								onSubmitEditing={() => {
+									void handleSearchThemeMusic();
+								}}
+							/>
+							<Pressable
+								style={[
+									styles.themeSearchButton,
+									(isThemeSearching || isThemeSaving) &&
+										styles.themeButtonDisabled,
+								]}
+								onPress={() => {
+									void handleSearchThemeMusic();
+								}}
+								disabled={isThemeSearching || isThemeSaving}
+							>
+								{isThemeSearching ? (
+									<ActivityIndicator size="small" color={Colors.white} />
+								) : (
+									<Ionicons name="search" size={16} color={Colors.white} />
+								)}
 							</Pressable>
 						</View>
 
-						{tripPhotos.length > 0 ? (
-							<>
-								<View style={styles.highlightStageWrap}>
-									<Pressable
-										onPress={() => moveHighlight(-1)}
-										style={styles.highlightStageNavLeft}
-										hitSlop={10}
-									>
-										<Ionicons
-											name="chevron-back"
-											size={28}
-											color={Colors.white}
-										/>
-									</Pressable>
-									<Animated.View
-										style={[
-											styles.highlightStageCard,
-											{
-												opacity: highlightAnim,
-												transform: [
-													{ perspective: 920 },
-													{
-														rotateY: highlightAnim.interpolate({
-															inputRange: [0.88, 1],
-															outputRange: ["14deg", "0deg"],
-														}),
-													},
-													{ scale: highlightAnim },
-												],
-											},
-										]}
-									>
-										{currentHighlightPhoto?.image_url ? (
+						<ScrollView
+							style={styles.themeResultList}
+							contentContainerStyle={styles.themeResultContent}
+							keyboardShouldPersistTaps="handled"
+							showsVerticalScrollIndicator={false}
+						>
+							{themeResults.length === 0 && !isThemeSearching ? (
+								<View style={styles.themeEmptyBox}>
+									<Ionicons
+										name="musical-notes-outline"
+										size={22}
+										color={Colors.grayLight}
+									/>
+									<Text style={styles.themeEmptyText}>
+										キーワードを入力して曲を検索してください
+									</Text>
+								</View>
+							) : (
+								themeResults.map((track) => (
+									<View key={track.trackId} style={styles.themeResultItem}>
+										{track.artworkUrl100 ? (
 											<Image
-												source={{ uri: currentHighlightPhoto.image_url }}
-												style={styles.highlightStageImage}
+												source={{ uri: track.artworkUrl100 }}
+												style={styles.themeResultArtwork}
 											/>
 										) : (
-											<View style={styles.highlightStagePlaceholder}>
+											<View style={styles.themeResultArtworkFallback}>
 												<Ionicons
-													name="image-outline"
-													size={42}
-													color={Colors.grayLight}
+													name="musical-note-outline"
+													size={18}
+													color={Colors.gray}
 												/>
 											</View>
 										)}
-									</Animated.View>
-									<Pressable
-										onPress={() => moveHighlight(1)}
-										style={styles.highlightStageNavRight}
-										hitSlop={10}
-									>
-										<Ionicons
-											name="chevron-forward"
-											size={28}
-											color={Colors.white}
-										/>
-									</Pressable>
-								</View>
-
-								<View style={styles.highlightMetaRow}>
-									<Text style={styles.highlightMetaCount}>
-										{highlightIndex + 1} / {tripPhotos.length}
-									</Text>
-									{currentHighlightPhoto?.created_at && (
-										<Text style={styles.highlightMetaDate}>
-											{new Date(
-												currentHighlightPhoto.created_at,
-											).toLocaleString("ja-JP", {
-												month: "short",
-												day: "numeric",
-												hour: "2-digit",
-												minute: "2-digit",
-											})}
-										</Text>
-									)}
-								</View>
-
-								<ScrollView
-									horizontal
-									showsHorizontalScrollIndicator={false}
-									contentContainerStyle={styles.highlightThumbList}
-								>
-									{tripPhotos.map((photo, index) => {
-										const isActive = index === highlightIndex;
-										return (
-											<Pressable
-												key={photo.id}
-												onPress={() => setHighlightIndex(index)}
-												style={[
-													styles.highlightThumbButton,
-													isActive && styles.highlightThumbButtonActive,
-												]}
-											>
-												{photo.image_url ? (
-													<Image
-														source={{ uri: photo.image_url }}
-														style={styles.highlightThumbImage}
-													/>
-												) : (
-													<View style={styles.highlightThumbFallback}>
-														<Ionicons
-															name="camera-outline"
-															size={14}
-															color={Colors.gray}
-														/>
-													</View>
-												)}
-											</Pressable>
-										);
-									})}
-								</ScrollView>
-							</>
-						) : (
-							<View style={styles.highlightModalEmpty}>
-								<Ionicons
-									name="camera-outline"
-									size={28}
-									color={Colors.grayLight}
-								/>
-								<Text style={styles.highlightModalEmptyText}>
-									表示できる写真がありません
-								</Text>
-							</View>
-						)}
-					</Animated.View>
+										<View style={styles.themeResultMeta}>
+											<Text style={styles.themeResultTitle} numberOfLines={1}>
+												{track.trackName}
+											</Text>
+											<Text style={styles.themeResultArtist} numberOfLines={1}>
+												{track.artistName}
+											</Text>
+										</View>
+										<Pressable
+											style={styles.themeMiniButton}
+											onPress={() => {
+												void openExternalUrl(
+													track.previewUrl,
+													"プレビューを開けませんでした",
+												);
+											}}
+										>
+											<Text style={styles.themeMiniButtonText}>試聴</Text>
+										</Pressable>
+										<Pressable
+											style={[
+												styles.themePickButton,
+												isThemeSaving && styles.themeButtonDisabled,
+											]}
+											onPress={() => {
+												void handleSelectThemeMusic(track);
+											}}
+											disabled={isThemeSaving}
+										>
+											<Text style={styles.themePickButtonText}>
+												{isThemeSaving ? "保存中..." : "設定"}
+											</Text>
+										</Pressable>
+									</View>
+								))
+							)}
+						</ScrollView>
+					</View>
 				</View>
 			</Modal>
 
@@ -1258,7 +1982,7 @@ const styles = StyleSheet.create({
 	highlightCounter: {
 		fontSize: 12,
 		fontWeight: "700",
-		color: Colors.gray,
+		color: "#2A7B4C",
 	},
 	highlightLoadingBox: {
 		height: 180,
@@ -1279,9 +2003,9 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "space-between",
 		paddingHorizontal: 16,
-		backgroundColor: "#182D48",
+		backgroundColor: "#F6FFF9",
 		borderWidth: 1,
-		borderColor: "#2D4F80",
+		borderColor: "#79C79A",
 	},
 	highlightLaunchLeft: {
 		flexDirection: "row",
@@ -1289,24 +2013,28 @@ const styles = StyleSheet.create({
 		gap: 8,
 	},
 	highlightLaunchTitle: {
-		color: Colors.white,
+		color: "#1E6A3C",
 		fontSize: 15,
 		fontWeight: "700",
 		letterSpacing: 0.2,
 	},
 	highlightModalOverlay: {
 		flex: 1,
-		backgroundColor: "#060A16",
+		backgroundColor: "rgba(30, 106, 60, 0.14)",
 		paddingHorizontal: 16,
 		paddingVertical: 36,
 		justifyContent: "center",
+	},
+	highlightModalOverlayCompact: {
+		paddingHorizontal: 10,
+		paddingVertical: 14,
 	},
 	highlightAuraPrimary: {
 		position: "absolute",
 		width: 320,
 		height: 320,
 		borderRadius: 160,
-		backgroundColor: "rgba(46, 168, 255, 0.28)",
+		backgroundColor: "rgba(93, 201, 140, 0.28)",
 		top: 40,
 		left: -80,
 	},
@@ -1315,46 +2043,120 @@ const styles = StyleSheet.create({
 		width: 280,
 		height: 280,
 		borderRadius: 140,
-		backgroundColor: "rgba(255, 113, 184, 0.24)",
+		backgroundColor: "rgba(175, 236, 201, 0.34)",
 		bottom: 70,
 		right: -60,
 	},
 	highlightModalBody: {
 		borderRadius: 24,
 		padding: 16,
-		backgroundColor: "rgba(13, 20, 36, 0.88)",
+		gap: 10,
+		backgroundColor: "rgba(255, 255, 255, 0.97)",
 		borderWidth: 1,
-		borderColor: "rgba(144, 186, 255, 0.35)",
-		shadowColor: "#000B24",
+		borderColor: "rgba(122, 196, 153, 0.8)",
+		shadowColor: "#246D44",
 		shadowOffset: { width: 0, height: 16 },
-		shadowOpacity: 0.46,
+		shadowOpacity: 0.22,
 		shadowRadius: 28,
 		elevation: 18,
+		maxHeight: "94%",
+	},
+	highlightModalBodyCompact: {
+		padding: 12,
+		borderRadius: 20,
+	},
+	highlightModalScroll: {
+		flexGrow: 0,
+	},
+	highlightModalScrollContent: {
+		paddingBottom: 2,
+	},
+	highlightModalScrollContentCompact: {
+		paddingBottom: 8,
 	},
 	highlightModalHeader: {
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "space-between",
-		marginBottom: 12,
 	},
 	highlightModalTitle: {
 		fontSize: 15,
 		fontWeight: "800",
-		color: "#BFE1FF",
+		color: "#1E6A3C",
 		letterSpacing: 1.1,
 	},
 	highlightModalClose: {
 		width: 34,
 		height: 34,
 		borderRadius: 17,
-		backgroundColor: "rgba(255,255,255,0.16)",
+		backgroundColor: "#E9F8EE",
+		borderWidth: 1,
+		borderColor: "#B7E4C8",
 		alignItems: "center",
 		justifyContent: "center",
+	},
+	highlightMusicRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+		backgroundColor: "#F4FCF7",
+		borderWidth: 1,
+		borderColor: "#D3EEDC",
+		borderRadius: 12,
+		paddingHorizontal: 10,
+		paddingVertical: 8,
+	},
+	highlightMusicRowCompact: {
+		paddingHorizontal: 8,
+		paddingVertical: 7,
+	},
+	highlightMusicMeta: {
+		flex: 1,
+	},
+	highlightMusicLabel: {
+		fontSize: 11,
+		color: "#5F9A79",
+		letterSpacing: 0.8,
+		textTransform: "uppercase",
+	},
+	highlightMusicTitle: {
+		marginTop: 2,
+		fontSize: 14,
+		fontWeight: "700",
+		color: "#144B2C",
+	},
+	highlightMusicButton: {
+		minWidth: 92,
+		height: 36,
+		borderRadius: 18,
+		paddingHorizontal: 12,
+		backgroundColor: "#2D9A5F",
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 5,
+	},
+	highlightMusicButtonText: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: Colors.white,
+	},
+	highlightMusicError: {
+		fontSize: 12,
+		color: "#BA4A4A",
 	},
 	highlightStageWrap: {
 		height: 430,
 		justifyContent: "center",
 		alignItems: "center",
+	},
+	highlightStageWrapCompact: {
+		marginTop: 2,
+	},
+	highlightStageNavCompact: {
+		width: 34,
+		height: 34,
+		marginTop: -17,
 	},
 	highlightStageNavLeft: {
 		position: "absolute",
@@ -1375,9 +2177,12 @@ const styles = StyleSheet.create({
 		height: "100%",
 		borderRadius: 24,
 		overflow: "hidden",
-		backgroundColor: "#101829",
+		backgroundColor: "#F8FFF9",
 		borderWidth: 1,
-		borderColor: "rgba(255,255,255,0.16)",
+		borderColor: "#BFE4CD",
+	},
+	highlightStageCardCompact: {
+		width: "90%",
 	},
 	highlightStageImage: {
 		width: "100%",
@@ -1387,7 +2192,7 @@ const styles = StyleSheet.create({
 		flex: 1,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#151D2E",
+		backgroundColor: "#EAF7EF",
 	},
 	highlightMetaRow: {
 		marginTop: 12,
@@ -1398,11 +2203,11 @@ const styles = StyleSheet.create({
 	highlightMetaCount: {
 		fontSize: 15,
 		fontWeight: "700",
-		color: Colors.white,
+		color: "#1E6A3C",
 	},
 	highlightMetaDate: {
 		fontSize: 13,
-		color: "#B6C4DA",
+		color: "#4A7B61",
 	},
 	highlightThumbList: {
 		gap: 8,
@@ -1419,7 +2224,7 @@ const styles = StyleSheet.create({
 		backgroundColor: Colors.grayLighter,
 	},
 	highlightThumbButtonActive: {
-		borderColor: Colors.primary,
+		borderColor: "#2D9A5F",
 	},
 	highlightThumbImage: {
 		width: "100%",
@@ -1429,7 +2234,7 @@ const styles = StyleSheet.create({
 		flex: 1,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#192133",
+		backgroundColor: "#EAF7EF",
 	},
 	highlightEmptyBox: {
 		borderWidth: 1,
@@ -1452,7 +2257,256 @@ const styles = StyleSheet.create({
 	},
 	highlightModalEmptyText: {
 		fontSize: 14,
-		color: "#AFC4DF",
+		color: "#3E6E55",
+	},
+	themeCard: {
+		borderRadius: 14,
+		padding: 12,
+		borderWidth: 1,
+		borderColor: Colors.grayLight,
+		backgroundColor: "#F8FAFC",
+		gap: 10,
+	},
+	themeCardTop: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+	},
+	themeArtwork: {
+		width: 52,
+		height: 52,
+		borderRadius: 10,
+	},
+	themeArtworkFallback: {
+		width: 52,
+		height: 52,
+		borderRadius: 10,
+		backgroundColor: Colors.primary,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	themeMeta: {
+		flex: 1,
+		gap: 2,
+	},
+	themeTitle: {
+		fontSize: 15,
+		fontWeight: "700",
+		color: Colors.black,
+	},
+	themeArtist: {
+		fontSize: 13,
+		color: Colors.gray,
+	},
+	themeActionRow: {
+		flexDirection: "row",
+		gap: 8,
+	},
+	themeActionButton: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 4,
+		borderWidth: 1,
+		borderColor: Colors.primary,
+		borderRadius: 10,
+		paddingVertical: 9,
+	},
+	themeActionButtonText: {
+		fontSize: 13,
+		fontWeight: "600",
+		color: Colors.primary,
+	},
+	themeManageRow: {
+		flexDirection: "row",
+		gap: 8,
+	},
+	themeSecondaryButton: {
+		flex: 1,
+		borderRadius: 10,
+		paddingVertical: 9,
+		alignItems: "center",
+		backgroundColor: Colors.white,
+		borderWidth: 1,
+		borderColor: Colors.grayLight,
+	},
+	themeSecondaryButtonText: {
+		color: Colors.black,
+		fontWeight: "600",
+		fontSize: 13,
+	},
+	themeDangerButton: {
+		flex: 1,
+		borderRadius: 10,
+		paddingVertical: 9,
+		alignItems: "center",
+		backgroundColor: "#FDECEC",
+		borderWidth: 1,
+		borderColor: "#F2B6B6",
+	},
+	themeDangerButtonText: {
+		color: Colors.danger,
+		fontWeight: "600",
+		fontSize: 13,
+	},
+	themeAttribution: {
+		fontSize: 11,
+		color: Colors.gray,
+	},
+	themeSetButton: {
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: Colors.primary,
+		borderStyle: "dashed",
+		paddingVertical: 14,
+		paddingHorizontal: 12,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 6,
+	},
+	themeSetButtonText: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: Colors.primary,
+	},
+	themeButtonDisabled: {
+		opacity: 0.5,
+	},
+	themeModalOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.45)",
+		justifyContent: "center",
+		padding: 16,
+	},
+	themeModalBody: {
+		backgroundColor: Colors.white,
+		borderRadius: 16,
+		padding: 16,
+		maxHeight: "82%",
+	},
+	themeModalHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	themeModalTitle: {
+		fontSize: 17,
+		fontWeight: "700",
+		color: Colors.black,
+	},
+	themeModalClose: {
+		padding: 4,
+	},
+	themeModalCaption: {
+		fontSize: 12,
+		color: Colors.gray,
+		marginTop: 4,
+		marginBottom: 12,
+	},
+	themeSearchRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	themeSearchInput: {
+		flex: 1,
+		borderWidth: 1,
+		borderColor: Colors.grayLight,
+		borderRadius: 10,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+		fontSize: 14,
+		color: Colors.black,
+	},
+	themeSearchButton: {
+		width: 40,
+		height: 40,
+		borderRadius: 20,
+		backgroundColor: Colors.primary,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	themeResultList: {
+		marginTop: 12,
+	},
+	themeResultContent: {
+		paddingBottom: 6,
+		gap: 10,
+	},
+	themeEmptyBox: {
+		borderWidth: 1,
+		borderColor: Colors.grayLight,
+		borderStyle: "dashed",
+		borderRadius: 12,
+		paddingVertical: 18,
+		paddingHorizontal: 12,
+		alignItems: "center",
+		gap: 6,
+	},
+	themeEmptyText: {
+		fontSize: 13,
+		color: Colors.gray,
+	},
+	themeResultItem: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+		padding: 10,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: Colors.grayLighter,
+		backgroundColor: Colors.white,
+	},
+	themeResultArtwork: {
+		width: 46,
+		height: 46,
+		borderRadius: 8,
+	},
+	themeResultArtworkFallback: {
+		width: 46,
+		height: 46,
+		borderRadius: 8,
+		backgroundColor: Colors.grayLighter,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	themeResultMeta: {
+		flex: 1,
+		gap: 2,
+	},
+	themeResultTitle: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: Colors.black,
+	},
+	themeResultArtist: {
+		fontSize: 12,
+		color: Colors.gray,
+	},
+	themeMiniButton: {
+		borderRadius: 8,
+		paddingVertical: 7,
+		paddingHorizontal: 10,
+		borderWidth: 1,
+		borderColor: Colors.primary,
+	},
+	themeMiniButtonText: {
+		fontSize: 12,
+		fontWeight: "600",
+		color: Colors.primary,
+	},
+	themePickButton: {
+		borderRadius: 8,
+		paddingVertical: 7,
+		paddingHorizontal: 10,
+		backgroundColor: Colors.primary,
+	},
+	themePickButtonText: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: Colors.white,
 	},
 	footer: {
 		padding: 20,
