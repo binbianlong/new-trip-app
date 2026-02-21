@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, {
+	type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -11,13 +13,16 @@ import {
 	Dimensions,
 	type FlatList,
 	Image,
+	Modal,
+	Platform,
 	Pressable,
+	ScrollView,
 	StyleSheet,
 	Text,
 	TouchableOpacity,
 	View,
 } from "react-native";
-import MapView, { Marker, type Region } from "react-native-maps";
+import MapView, { type LatLng, Marker, type Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
@@ -29,6 +34,7 @@ const CARD_WIDTH = SCREEN_WIDTH * 0.52;
 const CARD_SPACING = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
+const LOCATION_PICKER_DELTA = 0.04;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -36,6 +42,20 @@ const JAPAN_REGION: Region = {
 	latitudeDelta: 14,
 	longitudeDelta: 14,
 };
+
+type PendingPhoto = {
+	uri: string;
+	mimeType: string;
+	fileExt: string;
+};
+
+function normalizePhotoExtension(mimeType: string | null | undefined): string {
+	if (!mimeType) return "jpg";
+	const ext = mimeType.split("/")[1]?.toLowerCase() ?? "";
+	if (!ext) return "jpg";
+	if (ext === "jpeg") return "jpg";
+	return ext.replace(/[^a-z0-9]/g, "") || "jpg";
+}
 
 export default function ActiveTripScreen() {
 	const { tripId } = useLocalSearchParams<{ tripId: string }>();
@@ -47,9 +67,22 @@ export default function ActiveTripScreen() {
 	const [photos, setPhotos] = useState<Photo[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [isSaving, setIsSaving] = useState(false);
-	const [focusedPhotoId, setFocusedPhotoId] = useState<number | null>(null);
+	const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
+	const [isPhotoMetaModalVisible, setIsPhotoMetaModalVisible] = useState(false);
+	const [selectedCoordinate, setSelectedCoordinate] = useState<LatLng | null>(
+		null,
+	);
+	const [photoLocationRegion, setPhotoLocationRegion] =
+		useState<Region>(JAPAN_REGION);
+	const [photoTakenAt, setPhotoTakenAt] = useState(() => new Date());
+	const [isPhotoDatePickerVisible, setIsPhotoDatePickerVisible] =
+		useState(false);
+	const [photoDatePickerMode, setPhotoDatePickerMode] = useState<
+		"date" | "time"
+	>("date");
 	const photoListRef = useRef<FlatList<Photo>>(null);
 	const scrollX = useRef(new Animated.Value(0)).current;
+	const isFinishedTrip = trip?.status === "finished";
 
 	// --- データ取得（Supabase） ---
 	const fetchTripData = useCallback(async () => {
@@ -138,7 +171,17 @@ export default function ActiveTripScreen() {
 
 	// --- データ保存 ---
 	const savePhoto = useCallback(
-		async (imageUri: string, lat: number, lng: number) => {
+		async ({
+			photo,
+			lat,
+			lng,
+			createdAt,
+		}: {
+			photo: PendingPhoto;
+			lat: number;
+			lng: number;
+			createdAt: string;
+		}) => {
 			if (!tripId) return;
 
 			const {
@@ -152,15 +195,15 @@ export default function ActiveTripScreen() {
 				return;
 			}
 
-			const fileName = `${tripId}/${Date.now()}.jpg`;
+			const fileName = `${tripId}/${Date.now()}.${photo.fileExt}`;
 
-			const file = new ExpoFile(imageUri);
+			const file = new ExpoFile(photo.uri);
 			const arrayBuffer = await file.arrayBuffer();
 
 			const { error: uploadError } = await supabase.storage
 				.from("photos")
 				.upload(fileName, arrayBuffer, {
-					contentType: "image/jpeg",
+					contentType: photo.mimeType,
 					upsert: false,
 				});
 
@@ -183,6 +226,7 @@ export default function ActiveTripScreen() {
 				image_url: urlData.publicUrl,
 				lat,
 				lng,
+				created_at: createdAt,
 			});
 
 			if (insertError) {
@@ -205,11 +249,49 @@ export default function ActiveTripScreen() {
 				},
 				500,
 			);
+
+			return true;
 		},
 		[tripId, fetchTripData],
 	);
 
-	// --- カメラ撮影 ---
+	const openPhotoMetaModal = useCallback(
+		(photo: PendingPhoto) => {
+			const latestPhotoWithCoords = [...photos]
+				.reverse()
+				.find((p) => p.lat != null && p.lng != null);
+			const initialCoordinate: LatLng = latestPhotoWithCoords
+				? {
+						latitude: latestPhotoWithCoords.lat as number,
+						longitude: latestPhotoWithCoords.lng as number,
+					}
+				: {
+						latitude: JAPAN_REGION.latitude,
+						longitude: JAPAN_REGION.longitude,
+					};
+
+			setPendingPhoto(photo);
+			setSelectedCoordinate(initialCoordinate);
+			setPhotoLocationRegion({
+				latitude: initialCoordinate.latitude,
+				longitude: initialCoordinate.longitude,
+				latitudeDelta: LOCATION_PICKER_DELTA,
+				longitudeDelta: LOCATION_PICKER_DELTA,
+			});
+			setPhotoTakenAt(new Date());
+			setPhotoDatePickerMode("date");
+			setIsPhotoDatePickerVisible(false);
+			setIsPhotoMetaModalVisible(true);
+		},
+		[photos],
+	);
+
+	const closePhotoMetaModal = useCallback(() => {
+		setIsPhotoMetaModalVisible(false);
+		setPendingPhoto(null);
+		setIsPhotoDatePickerVisible(false);
+	}, []);
+
 	const handleTakePhoto = useCallback(async () => {
 		try {
 			const cameraPerm = await ImagePicker.requestCameraPermissionsAsync();
@@ -218,37 +300,144 @@ export default function ActiveTripScreen() {
 				return;
 			}
 
-			const locationPerm = await Location.requestForegroundPermissionsAsync();
-			if (!locationPerm.granted) {
-				Alert.alert("権限エラー", "位置情報の使用を許可してください");
-				return;
-			}
-
 			const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
 			if (result.canceled) return;
+			const picked = result.assets[0];
+			if (!picked) return;
 
-			const imageUri = result.assets[0].uri;
-
-			const location = await Location.getCurrentPositionAsync({
-				accuracy: Location.Accuracy.High,
+			openPhotoMetaModal({
+				uri: picked.uri,
+				mimeType: picked.mimeType ?? "image/jpeg",
+				fileExt: normalizePhotoExtension(picked.mimeType),
 			});
-			const { latitude, longitude } = location.coords;
-
-			setIsSaving(true);
-			try {
-				await savePhoto(imageUri, latitude, longitude);
-			} finally {
-				setIsSaving(false);
-			}
 		} catch (error) {
 			console.error("handleTakePhoto error:", error);
 			Alert.alert(
 				"エラー",
-				"写真の撮影・保存中にエラーが発生しました。もう一度お試しください。",
+				"写真の撮影中にエラーが発生しました。もう一度お試しください。",
 			);
+		}
+	}, [openPhotoMetaModal]);
+
+	const handlePickFromLibrary = useCallback(async () => {
+		try {
+			const mediaPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+			if (!mediaPerm.granted) {
+				Alert.alert("権限エラー", "写真ライブラリの使用を許可してください");
+				return;
+			}
+
+			const result = await ImagePicker.launchImageLibraryAsync({
+				mediaTypes: ["images"],
+				quality: 0.9,
+			});
+			if (result.canceled) return;
+			const picked = result.assets[0];
+			if (!picked) return;
+
+			openPhotoMetaModal({
+				uri: picked.uri,
+				mimeType: picked.mimeType ?? "image/jpeg",
+				fileExt: normalizePhotoExtension(picked.mimeType),
+			});
+		} catch (error) {
+			console.error("handlePickFromLibrary error:", error);
+			Alert.alert(
+				"エラー",
+				"写真ライブラリの読み込み中にエラーが発生しました。もう一度お試しください。",
+			);
+		}
+	}, [openPhotoMetaModal]);
+
+	const handleAddPhotoPress = useCallback(() => {
+		Alert.alert("写真を追加", "追加方法を選択してください", [
+			{ text: "キャンセル", style: "cancel" },
+			{ text: "カメラで撮影", onPress: () => void handleTakePhoto() },
+			{
+				text: "ライブラリから選択",
+				onPress: () => void handlePickFromLibrary(),
+			},
+		]);
+	}, [handleTakePhoto, handlePickFromLibrary]);
+
+	const openPhotoDatePicker = useCallback((mode: "date" | "time") => {
+		setPhotoDatePickerMode(mode);
+		setIsPhotoDatePickerVisible(true);
+	}, []);
+
+	const handlePhotoDateChange = useCallback(
+		(event: DateTimePickerEvent, selectedDate?: Date) => {
+			if (Platform.OS !== "ios") {
+				setIsPhotoDatePickerVisible(false);
+			}
+
+			if (event.type === "dismissed" || !selectedDate) return;
+
+			setPhotoTakenAt((prev) => {
+				const next = new Date(prev);
+				if (photoDatePickerMode === "date") {
+					next.setFullYear(
+						selectedDate.getFullYear(),
+						selectedDate.getMonth(),
+						selectedDate.getDate(),
+					);
+					return next;
+				}
+
+				next.setHours(
+					selectedDate.getHours(),
+					selectedDate.getMinutes(),
+					selectedDate.getSeconds(),
+					0,
+				);
+				return next;
+			});
+		},
+		[photoDatePickerMode],
+	);
+
+	const handleSavePhotoWithMeta = useCallback(async () => {
+		if (!pendingPhoto) {
+			Alert.alert("写真が未選択です", "写真を選択してから保存してください");
+			return;
+		}
+
+		if (!selectedCoordinate) {
+			Alert.alert(
+				"位置情報が未設定です",
+				"地図をタップして位置を指定してください",
+			);
+			return;
+		}
+
+		setIsSaving(true);
+		try {
+			const succeeded = await savePhoto({
+				photo: pendingPhoto,
+				lat: selectedCoordinate.latitude,
+				lng: selectedCoordinate.longitude,
+				createdAt: photoTakenAt.toISOString(),
+			});
+
+			if (succeeded) {
+				closePhotoMetaModal();
+			}
+		} catch (error) {
+			console.error("handleSavePhotoWithMeta error:", error);
+			Alert.alert(
+				"エラー",
+				"写真保存中にエラーが発生しました。時間を置いて再度お試しください。",
+			);
+		} finally {
 			setIsSaving(false);
 		}
-	}, [savePhoto]);
+	}, [
+		pendingPhoto,
+		selectedCoordinate,
+		photoTakenAt,
+		savePhoto,
+		closePhotoMetaModal,
+	]);
 
 	// --- 旅行終了 ---
 	const handleEndTrip = useCallback(() => {
@@ -285,7 +474,6 @@ export default function ActiveTripScreen() {
 			const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
 			if (!centerItem) return;
 			const photo = centerItem.item;
-			setFocusedPhotoId(photo.id);
 			if (photo.lat != null && photo.lng != null) {
 				mapRef.current?.animateToRegion(
 					{
@@ -514,22 +702,221 @@ export default function ActiveTripScreen() {
 
 			{/* 下部フローティングボタン */}
 			<View style={styles.bottomActions}>
-				<Pressable style={styles.endButton} onPress={handleEndTrip}>
-					<Text style={styles.endButtonText}>終了</Text>
+				<Pressable
+					style={[styles.endButton, isFinishedTrip && styles.backOnlyButton]}
+					onPress={isFinishedTrip ? () => router.back() : handleEndTrip}
+				>
+					<Text style={styles.endButtonText}>
+						{isFinishedTrip ? "戻る" : "終了"}
+					</Text>
 				</Pressable>
 
 				<Pressable
 					style={[styles.cameraButton, isSaving && styles.buttonDisabled]}
-					onPress={handleTakePhoto}
+					onPress={handleAddPhotoPress}
 					disabled={isSaving}
 				>
 					{isSaving ? (
 						<ActivityIndicator size="small" color={Colors.black} />
 					) : (
-						<Ionicons name="camera-outline" size={36} color={Colors.black} />
+						<Ionicons
+							name="add-circle-outline"
+							size={36}
+							color={Colors.black}
+						/>
 					)}
 				</Pressable>
 			</View>
+
+			<Modal
+				visible={isPhotoMetaModalVisible}
+				animationType="slide"
+				onRequestClose={closePhotoMetaModal}
+			>
+				<SafeAreaView style={styles.metaModalContainer}>
+					<ScrollView
+						style={styles.metaModalScroll}
+						contentContainerStyle={styles.metaModalScrollContent}
+						showsVerticalScrollIndicator={false}
+					>
+						<View style={styles.metaModalHeader}>
+							<Text style={styles.metaModalTitle}>写真情報を設定</Text>
+							<Pressable
+								style={styles.metaModalClose}
+								onPress={closePhotoMetaModal}
+								disabled={isSaving}
+							>
+								<Ionicons name="close" size={22} color={Colors.gray} />
+							</Pressable>
+						</View>
+
+						<Text style={styles.metaModalCaption}>
+							地図をタップして緯度・経度を設定してください
+						</Text>
+
+						{pendingPhoto?.uri ? (
+							<Image
+								source={{ uri: pendingPhoto.uri }}
+								style={styles.metaPreviewImage}
+								resizeMode="cover"
+							/>
+						) : null}
+
+						<View style={styles.metaMapWrap}>
+							<MapView
+								style={styles.metaMap}
+								region={photoLocationRegion}
+								onRegionChangeComplete={(region) => {
+									setPhotoLocationRegion(region);
+								}}
+								onPress={(event) => {
+									const { coordinate } = event.nativeEvent;
+									setSelectedCoordinate(coordinate);
+									setPhotoLocationRegion((prev) => ({
+										...prev,
+										latitude: coordinate.latitude,
+										longitude: coordinate.longitude,
+									}));
+								}}
+							>
+								{selectedCoordinate && (
+									<Marker
+										coordinate={selectedCoordinate}
+										draggable
+										onDragEnd={(event) => {
+											const { coordinate } = event.nativeEvent;
+											setSelectedCoordinate(coordinate);
+											setPhotoLocationRegion((prev) => ({
+												...prev,
+												latitude: coordinate.latitude,
+												longitude: coordinate.longitude,
+											}));
+										}}
+									/>
+								)}
+							</MapView>
+						</View>
+
+						<View style={styles.metaCoordinateRow}>
+							<Text style={styles.metaCoordinateText}>
+								緯度:{" "}
+								{selectedCoordinate
+									? selectedCoordinate.latitude.toFixed(6)
+									: "-"}
+							</Text>
+							<Text style={styles.metaCoordinateText}>
+								経度:{" "}
+								{selectedCoordinate
+									? selectedCoordinate.longitude.toFixed(6)
+									: "-"}
+							</Text>
+						</View>
+
+						<View style={styles.metaField}>
+							<Text style={styles.metaFieldLabel}>
+								写真日時（`created_at` に保存）
+							</Text>
+							<View style={styles.metaDateRow}>
+								<Pressable
+									style={styles.metaDateButton}
+									onPress={() => openPhotoDatePicker("date")}
+								>
+									<Ionicons
+										name="calendar-outline"
+										size={16}
+										color={Colors.primaryDark}
+									/>
+									<Text style={styles.metaDateText}>
+										{photoTakenAt.toLocaleDateString("ja-JP")}
+									</Text>
+								</Pressable>
+								<Pressable
+									style={styles.metaDateButton}
+									onPress={() => openPhotoDatePicker("time")}
+								>
+									<Ionicons
+										name="time-outline"
+										size={16}
+										color={Colors.primaryDark}
+									/>
+									<Text style={styles.metaDateText}>
+										{photoTakenAt.toLocaleTimeString("ja-JP", {
+											hour: "2-digit",
+											minute: "2-digit",
+										})}
+									</Text>
+								</Pressable>
+							</View>
+						</View>
+
+						<View style={styles.metaActionRow}>
+							<Pressable
+								style={styles.metaCancelButton}
+								onPress={closePhotoMetaModal}
+								disabled={isSaving}
+							>
+								<Text style={styles.metaCancelButtonText}>キャンセル</Text>
+							</Pressable>
+							<Pressable
+								style={[
+									styles.metaSaveButton,
+									isSaving && styles.buttonDisabled,
+									(!pendingPhoto || !selectedCoordinate) &&
+										styles.metaSaveButtonDisabled,
+								]}
+								onPress={() => {
+									void handleSavePhotoWithMeta();
+								}}
+								disabled={isSaving || !pendingPhoto || !selectedCoordinate}
+							>
+								{isSaving ? (
+									<ActivityIndicator size="small" color={Colors.white} />
+								) : (
+									<Text style={styles.metaSaveButtonText}>この内容で追加</Text>
+								)}
+							</Pressable>
+						</View>
+					</ScrollView>
+
+					{Platform.OS === "ios" && isPhotoDatePickerVisible && (
+						<View style={styles.metaDatePickerOverlay}>
+							<View style={styles.metaDatePickerSheet}>
+								<View style={styles.metaDatePickerHeader}>
+									<Text style={styles.metaDatePickerTitle}>
+										{photoDatePickerMode === "date"
+											? "日付を選択"
+											: "時間を選択"}
+									</Text>
+									<Pressable
+										style={styles.metaDateDoneButton}
+										onPress={() => setIsPhotoDatePickerVisible(false)}
+									>
+										<Text style={styles.metaDateDoneText}>完了</Text>
+									</Pressable>
+								</View>
+								<DateTimePicker
+									value={photoTakenAt}
+									mode={photoDatePickerMode}
+									display="spinner"
+									locale="ja"
+									textColor={Colors.black}
+									themeVariant="light"
+									onChange={handlePhotoDateChange}
+								/>
+							</View>
+						</View>
+					)}
+					{Platform.OS !== "ios" && isPhotoDatePickerVisible && (
+						<DateTimePicker
+							value={photoTakenAt}
+							mode={photoDatePickerMode}
+							display="default"
+							locale="ja"
+							onChange={handlePhotoDateChange}
+						/>
+					)}
+				</SafeAreaView>
+			</Modal>
 		</View>
 	);
 }
@@ -639,6 +1026,9 @@ const styles = StyleSheet.create({
 		shadowRadius: 6,
 		elevation: 4,
 	},
+	backOnlyButton: {
+		backgroundColor: "#ECEFF1",
+	},
 	endButtonText: {
 		fontSize: 18,
 		fontWeight: "bold",
@@ -738,5 +1128,187 @@ const styles = StyleSheet.create({
 		width: 46,
 		height: 46,
 		borderRadius: 23,
+	},
+
+	/* 写真情報モーダル */
+	metaModalContainer: {
+		flex: 1,
+		backgroundColor: Colors.background,
+		paddingHorizontal: 16,
+		paddingTop: 8,
+		paddingBottom: 16,
+	},
+	metaModalScroll: {
+		flex: 1,
+	},
+	metaModalScrollContent: {
+		paddingBottom: 24,
+	},
+	metaModalHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 8,
+	},
+	metaModalTitle: {
+		fontSize: 20,
+		fontWeight: "700",
+		color: Colors.black,
+	},
+	metaModalClose: {
+		width: 36,
+		height: 36,
+		borderRadius: 18,
+		backgroundColor: Colors.white,
+		alignItems: "center",
+		justifyContent: "center",
+		borderWidth: 1,
+		borderColor: Colors.grayLighter,
+	},
+	metaModalCaption: {
+		fontSize: 13,
+		color: Colors.gray,
+		marginBottom: 10,
+	},
+	metaPreviewImage: {
+		width: "100%",
+		height: 120,
+		borderRadius: 12,
+		marginBottom: 12,
+		backgroundColor: Colors.grayLight,
+	},
+	metaMapWrap: {
+		borderRadius: 14,
+		overflow: "hidden",
+		borderWidth: 1,
+		borderColor: Colors.grayLighter,
+		backgroundColor: Colors.white,
+	},
+	metaMap: {
+		width: "100%",
+		height: 260,
+	},
+	metaCoordinateRow: {
+		marginTop: 10,
+		flexDirection: "row",
+		justifyContent: "space-between",
+		gap: 10,
+	},
+	metaCoordinateText: {
+		flex: 1,
+		fontSize: 13,
+		color: Colors.black,
+		backgroundColor: Colors.white,
+		paddingHorizontal: 10,
+		paddingVertical: 8,
+		borderRadius: 10,
+		borderWidth: 1,
+		borderColor: Colors.grayLighter,
+	},
+	metaField: {
+		marginTop: 16,
+	},
+	metaFieldLabel: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: Colors.black,
+		marginBottom: 8,
+	},
+	metaDateRow: {
+		flexDirection: "row",
+		gap: 10,
+	},
+	metaDateButton: {
+		flex: 1,
+		backgroundColor: Colors.white,
+		borderWidth: 1,
+		borderColor: Colors.grayLighter,
+		borderRadius: 10,
+		paddingVertical: 10,
+		paddingHorizontal: 10,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 6,
+	},
+	metaDateText: {
+		fontSize: 14,
+		fontWeight: "600",
+		color: Colors.black,
+	},
+	metaDateDoneButton: {
+		marginTop: 8,
+		alignSelf: "flex-end",
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		borderRadius: 8,
+		backgroundColor: Colors.primary,
+	},
+	metaDateDoneText: {
+		color: Colors.white,
+		fontSize: 13,
+		fontWeight: "600",
+	},
+	metaDatePickerOverlay: {
+		...StyleSheet.absoluteFillObject,
+		backgroundColor: "rgba(0,0,0,0.25)",
+		justifyContent: "flex-end",
+	},
+	metaDatePickerSheet: {
+		backgroundColor: Colors.white,
+		borderTopLeftRadius: 14,
+		borderTopRightRadius: 14,
+		paddingTop: 10,
+		paddingHorizontal: 10,
+		paddingBottom: 16,
+	},
+	metaDatePickerHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 4,
+		paddingHorizontal: 8,
+	},
+	metaDatePickerTitle: {
+		fontSize: 15,
+		fontWeight: "600",
+		color: Colors.black,
+	},
+	metaActionRow: {
+		marginTop: 16,
+		paddingTop: 14,
+		flexDirection: "row",
+		gap: 10,
+	},
+	metaCancelButton: {
+		flex: 1,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: Colors.grayLighter,
+		paddingVertical: 14,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: Colors.white,
+	},
+	metaCancelButtonText: {
+		fontSize: 15,
+		fontWeight: "600",
+		color: Colors.black,
+	},
+	metaSaveButton: {
+		flex: 1.4,
+		borderRadius: 12,
+		paddingVertical: 14,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: Colors.primary,
+	},
+	metaSaveButtonDisabled: {
+		backgroundColor: Colors.grayLight,
+	},
+	metaSaveButtonText: {
+		fontSize: 15,
+		fontWeight: "700",
+		color: Colors.white,
 	},
 });

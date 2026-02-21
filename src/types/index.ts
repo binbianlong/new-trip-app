@@ -1,4 +1,4 @@
-export type TripStatus = "planned" | "active" | "completed";
+export type TripStatus = "planned" | "started" | "finished";
 
 // ユーザー情報
 export interface User {
@@ -23,6 +23,14 @@ export interface Trip {
 	memo: string | null;
 	owner_id: number | null;
 	owner_user_id: string | null;
+	theme_music_provider?: string | null;
+	theme_music_track_id?: number | null;
+	theme_music_title?: string | null;
+	theme_music_artist?: string | null;
+	theme_music_preview_url?: string | null;
+	theme_music_artwork_url?: string | null;
+	theme_music_track_view_url?: string | null;
+	theme_music_set_at?: string | null;
 	updated_at: string | null;
 	deleted_at: string | null;
 }
