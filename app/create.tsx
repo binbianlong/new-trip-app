@@ -17,6 +17,7 @@ import {
 } from "react-native"; // Alertを追加
 import { Colors } from "../src/constants/colors";
 import { supabase } from "../src/lib/supabase";
+import { ensureTripMembers } from "../src/lib/tripMembers";
 import { fetchTrips } from "../src/store/tripStore";
 import type { User } from "../src/types";
 import { ParticipantPickerModal } from "./components/ParticipantPickerModal";
@@ -105,40 +106,7 @@ export default function CreateScreen() {
 				...selectedParticipants.map((participant) => participant.id),
 			];
 			const uniqueParticipantIds = [...new Set(participantIds)];
-			const joinedAt = new Date().toISOString();
-
-			const { data: existingMembers, error: existingMembersError } =
-				await supabase
-					.from("trip_members")
-					.select("user_id")
-					.eq("trip_id", createdTrip.id)
-					.in("user_id", uniqueParticipantIds);
-			if (existingMembersError) {
-				throw existingMembersError;
-			}
-
-			const existingUserIdSet = new Set(
-				(existingMembers ?? [])
-					.map((member) => member.user_id)
-					.filter((userId): userId is string => userId != null),
-			);
-
-			const membersToInsert = uniqueParticipantIds
-				.filter((userId) => !existingUserIdSet.has(userId))
-				.map((userId) => ({
-					trip_id: createdTrip.id,
-					user_id: userId,
-					joined_at: joinedAt,
-				}));
-
-			if (membersToInsert.length > 0) {
-				const { error: memberInsertError } = await supabase
-					.from("trip_members")
-					.insert(membersToInsert);
-				if (memberInsertError) {
-					throw memberInsertError;
-				}
-			}
+			await ensureTripMembers(createdTrip.id, uniqueParticipantIds);
 
 			await fetchTrips();
 			Alert.alert("作成完了", "旅行プランを保存しました！");
