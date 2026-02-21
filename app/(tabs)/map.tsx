@@ -7,6 +7,7 @@ import {
 	Dimensions,
 	type FlatList,
 	Image,
+	Modal,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -73,6 +74,7 @@ export default function MapScreen() {
 
 	const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
 	const [focusedPhotoId, setFocusedPhotoId] = useState<number | null>(null);
+	const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
 
 	const tripColorMap = useMemo(() => {
 		const map: Record<string, string> = {};
@@ -293,29 +295,23 @@ export default function MapScreen() {
 		[selectedTripId],
 	);
 
-	const handlePhotoCardPress = useCallback(
-		(photo: Photo) => {
-			if (photo.lat == null || photo.lng == null) return;
-			if (focusedPhotoId === photo.id) {
-				setFocusedPhotoId(null);
-			} else {
-				setFocusedPhotoId(photo.id);
-				if (!selectedTripId && photo.trip_id) {
-					setSelectedTripId(photo.trip_id);
-				}
-				mapRef.current?.animateToRegion(
-					{
-						latitude: photo.lat,
-						longitude: photo.lng,
-						latitudeDelta: 0.02,
-						longitudeDelta: 0.02,
-					},
-					400,
-				);
-			}
-		},
-		[focusedPhotoId, selectedTripId],
-	);
+	const handlePhotoCardPress = useCallback((photo: Photo) => {
+		if (photo.image_url) {
+			setPreviewPhoto(photo);
+		}
+		if (photo.lat != null && photo.lng != null) {
+			setFocusedPhotoId(photo.id);
+			mapRef.current?.animateToRegion(
+				{
+					latitude: photo.lat,
+					longitude: photo.lng,
+					latitudeDelta: 0.02,
+					longitudeDelta: 0.02,
+				},
+				400,
+			);
+		}
+	}, []);
 
 	const handleMapPress = useCallback(() => {
 		setFocusedPhotoId(null);
@@ -387,19 +383,40 @@ export default function MapScreen() {
 			];
 			const scale = scrollX.interpolate({
 				inputRange,
-				outputRange: [0.85, 1, 0.85],
+				outputRange: [0.78, 1, 0.78],
 				extrapolate: "clamp",
 			});
 			const opacity = scrollX.interpolate({
 				inputRange,
-				outputRange: [0.6, 1, 0.6],
+				outputRange: [0.35, 1, 0.35],
+				extrapolate: "clamp",
+			});
+			const rotateY = scrollX.interpolate({
+				inputRange,
+				outputRange: ["25deg", "0deg", "-25deg"],
+				extrapolate: "clamp",
+			});
+			const translateY = scrollX.interpolate({
+				inputRange,
+				outputRange: [18, -6, 18],
+				extrapolate: "clamp",
+			});
+			const translateX = scrollX.interpolate({
+				inputRange,
+				outputRange: [20, 0, -20],
 				extrapolate: "clamp",
 			});
 			return (
 				<Animated.View
 					style={{
 						width: CARD_WIDTH,
-						transform: [{ scale }],
+						transform: [
+							{ perspective: 600 },
+							{ scale },
+							{ rotateY },
+							{ translateY },
+							{ translateX },
+						],
 						opacity,
 					}}
 				>
@@ -570,13 +587,14 @@ export default function MapScreen() {
 							{selectedTrip.title ?? "無題"}
 						</Text>
 						<TouchableOpacity
+							style={styles.tripInfoClose}
 							onPress={() => {
 								setSelectedTripId(null);
 								setFocusedPhotoId(null);
 							}}
 							hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
 						>
-							<Ionicons name="chevron-down" size={20} color={Colors.gray} />
+							<Ionicons name="close" size={18} color={Colors.white} />
 						</TouchableOpacity>
 					</View>
 					<View style={styles.tripInfoMeta}>
@@ -707,6 +725,47 @@ export default function MapScreen() {
 					)}
 				</View>
 			)}
+			{/* 写真プレビューモーダル */}
+			<Modal
+				visible={previewPhoto !== null}
+				transparent
+				animationType="fade"
+				onRequestClose={() => setPreviewPhoto(null)}
+			>
+				<TouchableOpacity
+					style={styles.previewOverlay}
+					activeOpacity={1}
+					onPress={() => setPreviewPhoto(null)}
+				>
+					<View style={styles.previewContainer}>
+						{previewPhoto?.image_url && (
+							<Image
+								source={{ uri: previewPhoto.image_url }}
+								style={styles.previewImage}
+								resizeMode="contain"
+							/>
+						)}
+						{previewPhoto?.created_at && (
+							<Text style={styles.previewDate}>
+								{new Date(previewPhoto.created_at).toLocaleString("ja-JP", {
+									year: "numeric",
+									month: "long",
+									day: "numeric",
+									hour: "2-digit",
+									minute: "2-digit",
+								})}
+							</Text>
+						)}
+					</View>
+					<TouchableOpacity
+						style={styles.previewCloseButton}
+						onPress={() => setPreviewPhoto(null)}
+						hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+					>
+						<Ionicons name="close" size={28} color={Colors.white} />
+					</TouchableOpacity>
+				</TouchableOpacity>
+			</Modal>
 		</View>
 	);
 }
@@ -887,6 +946,15 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		gap: 8,
 	},
+	tripInfoClose: {
+		width: 26,
+		height: 26,
+		borderRadius: 13,
+		backgroundColor: "rgba(0,0,0,0.25)",
+		justifyContent: "center",
+		alignItems: "center",
+		marginLeft: "auto",
+	},
 	tripInfoDot: {
 		width: 10,
 		height: 10,
@@ -946,18 +1014,23 @@ const styles = StyleSheet.create({
 	},
 	photoCard: {
 		width: CARD_WIDTH,
-		borderRadius: 14,
+		borderRadius: 18,
 		backgroundColor: Colors.white,
 		overflow: "hidden",
-		shadowColor: Colors.black,
-		shadowOffset: { width: 0, height: 3 },
-		shadowOpacity: 0.2,
-		shadowRadius: 6,
-		elevation: 5,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 14 },
+		shadowOpacity: 0.4,
+		shadowRadius: 24,
+		elevation: 16,
+		borderWidth: 0.5,
+		borderColor: "rgba(255,255,255,0.5)",
 	},
 	photoCardImage: {
 		width: "100%",
-		height: CARD_WIDTH * 0.75,
+		height: CARD_WIDTH * 0.78,
+		borderTopLeftRadius: 18,
+		borderTopRightRadius: 18,
+		overflow: "hidden",
 	},
 	photoCardImageFull: {
 		width: "100%",
@@ -972,10 +1045,12 @@ const styles = StyleSheet.create({
 	},
 	photoCardDate: {
 		fontSize: 12,
+		fontWeight: "600",
 		color: Colors.gray,
-		paddingHorizontal: 10,
-		paddingVertical: 6,
+		paddingHorizontal: 12,
+		paddingVertical: 8,
 		textAlign: "center",
+		letterSpacing: 0.3,
 	},
 
 	/* 写真なし */
@@ -1015,5 +1090,41 @@ const styles = StyleSheet.create({
 	emptyPanelText: {
 		fontSize: 14,
 		color: Colors.grayLight,
+	},
+
+	/* 写真プレビューモーダル */
+	previewOverlay: {
+		flex: 1,
+		backgroundColor: "rgba(0,0,0,0.9)",
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	previewContainer: {
+		width: SCREEN_WIDTH,
+		height: SCREEN_WIDTH * 1.2,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	previewImage: {
+		width: SCREEN_WIDTH - 24,
+		height: SCREEN_WIDTH * 1.1,
+		borderRadius: 12,
+	},
+	previewDate: {
+		marginTop: 16,
+		fontSize: 15,
+		color: "rgba(255,255,255,0.8)",
+		fontWeight: "500",
+	},
+	previewCloseButton: {
+		position: "absolute",
+		top: 60,
+		right: 20,
+		width: 40,
+		height: 40,
+		borderRadius: 20,
+		backgroundColor: "rgba(255,255,255,0.2)",
+		justifyContent: "center",
+		alignItems: "center",
 	},
 });
