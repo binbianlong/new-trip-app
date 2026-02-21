@@ -9,6 +9,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
+	Alert,
 	Animated,
 	Dimensions,
 	type FlatList,
@@ -17,6 +18,7 @@ import {
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
 	ScrollView,
+	Share,
 	StyleSheet,
 	Text,
 	TouchableOpacity,
@@ -24,6 +26,7 @@ import {
 } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { captureScreen } from "react-native-view-shot";
 import { Colors } from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
 import type { Photo, Trip, User } from "../../src/types";
@@ -36,6 +39,10 @@ const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 const [loading, setLoading] = useState(true);
 const PHOTO_FOCUS_DELTA = 0.08;
+const SNAPSHOT_PHOTO_PIN_SIZE = 96;
+const SNAPSHOT_PHOTO_PIN_IMAGE_SIZE = 82;
+const SNAPSHOT_PHOTO_PIN_BORDER_WIDTH = 6;
+const SNAPSHOT_RENDER_SETTLE_MS = 1100;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -92,6 +99,9 @@ export default function MapScreen() {
 	const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
 	const [focusedPhotoId, setFocusedPhotoId] = useState<number | null>(null);
 	const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
+	const [isCapturingTripSnapshot, setIsCapturingTripSnapshot] = useState(false);
+	const [isTrackingSnapshotMarkerViews, setIsTrackingSnapshotMarkerViews] =
+		useState(false);
 
 	const tripColorMap = useMemo(() => {
 		const map: Record<string, string> = {};
@@ -204,6 +214,7 @@ export default function MapScreen() {
 		() => trips.find((t) => t.id === selectedTripId) ?? null,
 		[trips, selectedTripId],
 	);
+	const isTripSnapshotMode = isCapturingTripSnapshot && selectedTripId != null;
 
 	/** 選択中の旅行のメンバー */
 	const [selectedMembers, setSelectedMembers] = useState<User[]>([]);
@@ -499,6 +510,85 @@ export default function MapScreen() {
 		setFocusedPhotoId(null);
 	}, []);
 
+	const handleTripSnapshot = useCallback(async () => {
+		if (!selectedTripId) return;
+
+		const targetPhotos = (photosByTrip[selectedTripId] ?? []).filter(
+			(photo) => photo.lat != null && photo.lng != null,
+		);
+		if (targetPhotos.length === 0) {
+			Alert.alert(
+				"地点がありません",
+				"この旅行には地図上の地点付き写真がありません。",
+			);
+			return;
+		}
+		if (!mapRef.current) {
+			Alert.alert("撮影できませんでした", "地図の準備ができていません。");
+			return;
+		}
+
+		try {
+			setIsTrackingSnapshotMarkerViews(true);
+			setIsCapturingTripSnapshot(true);
+			setFocusedPhotoId(null);
+			setPreviewPhoto(null);
+
+			await new Promise<void>((resolve) => {
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+			});
+
+			const coordinates = targetPhotos.map((photo) => ({
+				latitude: photo.lat as number,
+				longitude: photo.lng as number,
+			}));
+			if (coordinates.length === 1) {
+				const [point] = coordinates;
+				mapRef.current?.animateToRegion(
+					{
+						latitude: point.latitude,
+						longitude: point.longitude,
+						latitudeDelta: PHOTO_FOCUS_DELTA,
+						longitudeDelta: PHOTO_FOCUS_DELTA,
+					},
+					400,
+				);
+			} else {
+				mapRef.current?.fitToCoordinates(coordinates, {
+					animated: true,
+					edgePadding: { top: 140, right: 100, bottom: 140, left: 100 },
+				});
+			}
+
+			await new Promise((resolve) =>
+				setTimeout(resolve, SNAPSHOT_RENDER_SETTLE_MS),
+			);
+
+			const uri = await captureScreen({
+				format: "png",
+				quality: 1,
+			});
+			if (!uri) {
+				throw new Error("snapshot_uri_not_found");
+			}
+
+			await Share.share({
+				title: `${selectedTrip?.title ?? "旅行"}の地図`,
+				message: `${selectedTrip?.title ?? "旅行"}の地図スクリーンショット\n${uri}`,
+				url: uri,
+			});
+		} catch (error) {
+			console.error("handleTripSnapshot error:", error);
+			Alert.alert(
+				"スクリーンショットに失敗しました",
+				"時間をおいてもう一度お試しください。",
+			);
+		} finally {
+			setIsCapturingTripSnapshot(false);
+			setIsTrackingSnapshotMarkerViews(false);
+		}
+	}, [photosByTrip, selectedTripId, selectedTrip?.title]);
+
 	/** 全旅行が収まるようにマップを縮小 */
 	const handleFitAllTrips = useCallback(() => {
 		const allPositions = Object.entries(tripPositions);
@@ -674,47 +764,49 @@ export default function MapScreen() {
 					))}
 
 				{/* 旅行ピン（通常時はフィルター適用、選択時は全件表示） */}
-				{(selectedTripId ? trips : filteredTrips).map((trip) => {
-					const pos = tripPositions[trip.id];
-					if (!pos) return null;
-					const color = tripColorMap[trip.id] ?? Colors.primary;
-					const isSelected = trip.id === selectedTripId;
-					const photoCount = (photosByTrip[trip.id] ?? []).length;
+				{(isTripSnapshotMode ? [] : selectedTripId ? trips : filteredTrips).map(
+					(trip) => {
+						const pos = tripPositions[trip.id];
+						if (!pos) return null;
+						const color = tripColorMap[trip.id] ?? Colors.primary;
+						const isSelected = trip.id === selectedTripId;
+						const photoCount = (photosByTrip[trip.id] ?? []).length;
 
-					return (
-						<Marker
-							key={trip.id}
-							coordinate={pos}
-							onPress={() => handleTripPinPress(trip.id)}
-						>
-							<View
-								style={[
-									styles.tripPin,
-									{ backgroundColor: color },
-									isSelected && styles.tripPinSelected,
-								]}
+						return (
+							<Marker
+								key={trip.id}
+								coordinate={pos}
+								onPress={() => handleTripPinPress(trip.id)}
 							>
-								<Ionicons name="location" size={16} color={Colors.white} />
-								{photoCount > 0 && (
-									<View style={styles.tripPinBadge}>
-										<Text style={styles.tripPinBadgeText}>{photoCount}</Text>
-									</View>
-								)}
-							</View>
-							<View style={styles.tripPinLabel}>
-								<Text
+								<View
 									style={[
-										styles.tripPinLabelText,
-										isSelected && { fontWeight: "800", color },
+										styles.tripPin,
+										{ backgroundColor: color },
+										isSelected && styles.tripPinSelected,
 									]}
-									numberOfLines={1}
 								>
-									{trip.title ?? "無題"}
-								</Text>
-							</View>
-						</Marker>
-					);
-				})}
+									<Ionicons name="location" size={16} color={Colors.white} />
+									{photoCount > 0 && (
+										<View style={styles.tripPinBadge}>
+											<Text style={styles.tripPinBadgeText}>{photoCount}</Text>
+										</View>
+									)}
+								</View>
+								<View style={styles.tripPinLabel}>
+									<Text
+										style={[
+											styles.tripPinLabelText,
+											isSelected && { fontWeight: "800", color },
+										]}
+										numberOfLines={1}
+									>
+										{trip.title ?? "無題"}
+									</Text>
+								</View>
+							</Marker>
+						);
+					},
+				)}
 
 				{/* 写真ピン（通常時はフィルター適用済み写真、選択時はその旅行の写真） */}
 				{(selectedTripId ? selectedPhotos : filteredPhotos)
@@ -723,16 +815,18 @@ export default function MapScreen() {
 						const color = tripColorMap[photo.trip_id ?? ""] ?? Colors.primary;
 						return (
 							<Marker
-								key={photo.id}
+								key={`${photo.id}-${isTripSnapshotMode ? "snapshot" : "normal"}`}
 								coordinate={{
 									latitude: photo.lat as number,
 									longitude: photo.lng as number,
 								}}
 								onPress={() => handlePhotoCardPress(photo)}
+								tracksViewChanges={isTrackingSnapshotMarkerViews}
 							>
 								<View
 									style={[
 										styles.photoPin,
+										isTripSnapshotMode && styles.photoPinSnapshot,
 										!selectedTripId && { borderColor: color },
 										photo.id === focusedPhotoId && styles.photoPinFocused,
 									]}
@@ -740,10 +834,17 @@ export default function MapScreen() {
 									{photo.image_url ? (
 										<Image
 											source={{ uri: photo.image_url }}
-											style={styles.photoPinImage}
+											style={[
+												styles.photoPinImage,
+												isTripSnapshotMode && styles.photoPinImageSnapshot,
+											]}
 										/>
 									) : (
-										<Ionicons name="camera" size={14} color={Colors.white} />
+										<Ionicons
+											name="camera"
+											size={isTripSnapshotMode ? 34 : 14}
+											color={Colors.white}
+										/>
 									)}
 								</View>
 							</Marker>
@@ -752,7 +853,7 @@ export default function MapScreen() {
 			</MapView>
 
 			{/* 上部オーバーレイ */}
-			{selectedTrip ? (
+			{selectedTrip && !isTripSnapshotMode ? (
 				<View style={[styles.tripInfoOverlay, { top: insets.top + 12 }]}>
 					<View style={styles.tripInfoRow}>
 						<View
@@ -767,6 +868,14 @@ export default function MapScreen() {
 						<Text style={styles.tripInfoTitle} numberOfLines={1}>
 							{selectedTrip.title ?? "無題"}
 						</Text>
+						<TouchableOpacity
+							style={styles.tripInfoAction}
+							onPress={handleTripSnapshot}
+							activeOpacity={0.8}
+							hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+						>
+							<Ionicons name="camera-outline" size={16} color={Colors.white} />
+						</TouchableOpacity>
 						<TouchableOpacity
 							style={styles.tripInfoClose}
 							onPress={() => {
@@ -815,7 +924,7 @@ export default function MapScreen() {
 						</View>
 					)}
 				</View>
-			) : (
+			) : !isTripSnapshotMode ? (
 				filteredTrips.length > 0 && (
 					<ScrollView
 						horizontal
@@ -851,10 +960,10 @@ export default function MapScreen() {
 						})}
 					</ScrollView>
 				)
-			)}
+			) : null}
 
 			{/* 全旅行表示ボタン（旅行未選択時のみ表示） */}
-			{!selectedTrip && trips.length > 0 && (
+			{!selectedTrip && trips.length > 0 && !isTripSnapshotMode && (
 				<TouchableOpacity
 					style={[styles.fitAllButton, { bottom: insets.bottom + 16 }]}
 					onPress={handleFitAllTrips}
@@ -865,7 +974,7 @@ export default function MapScreen() {
 			)}
 
 			{/* 下部パネル: 旅行選択時のみ写真表示 */}
-			{selectedTrip && (
+			{selectedTrip && !isTripSnapshotMode && (
 				<View style={styles.bottomPanel}>
 					{selectedPhotos.length > 0 ? (
 						<Animated.FlatList
@@ -1045,6 +1154,12 @@ const styles = StyleSheet.create({
 		shadowRadius: 4,
 		elevation: 4,
 	},
+	photoPinSnapshot: {
+		width: SNAPSHOT_PHOTO_PIN_SIZE,
+		height: SNAPSHOT_PHOTO_PIN_SIZE,
+		borderRadius: SNAPSHOT_PHOTO_PIN_SIZE / 2,
+		borderWidth: SNAPSHOT_PHOTO_PIN_BORDER_WIDTH,
+	},
 	photoPinFocused: {
 		borderColor: Colors.primary,
 		transform: [{ scale: 1.2 }],
@@ -1053,6 +1168,11 @@ const styles = StyleSheet.create({
 		width: 28,
 		height: 28,
 		borderRadius: 14,
+	},
+	photoPinImageSnapshot: {
+		width: SNAPSHOT_PHOTO_PIN_IMAGE_SIZE,
+		height: SNAPSHOT_PHOTO_PIN_IMAGE_SIZE,
+		borderRadius: SNAPSHOT_PHOTO_PIN_IMAGE_SIZE / 2,
 	},
 
 	/* 旅行チップリスト（通常状態） */
@@ -1134,7 +1254,15 @@ const styles = StyleSheet.create({
 		backgroundColor: "rgba(0,0,0,0.25)",
 		justifyContent: "center",
 		alignItems: "center",
-		marginLeft: "auto",
+		marginLeft: 10,
+	},
+	tripInfoAction: {
+		width: 30,
+		height: 30,
+		borderRadius: 15,
+		backgroundColor: Colors.primary,
+		justifyContent: "center",
+		alignItems: "center",
 	},
 	tripInfoDot: {
 		width: 10,
