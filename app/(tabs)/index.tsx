@@ -10,27 +10,54 @@ import {
 	subscribe,
 } from "../../src/store/tripStore";
 import type { Trip } from "../../src/types";
+import { SplashScreen } from "../components/User/SplashScreen";
 
 // ホーム画面 - 旅行プランカード一覧
 export default function HomeScreen() {
 	const router = useRouter();
 	const [trips, setTrips] = useState(getTrips);
 	const [activeTripId, setActiveTripId] = useState(getActiveTripId);
+	const [isLoading, setIsLoading] = useState(true); // 2. 初期状態を読み込み中に設定
 
 	// ストアの変更を監視 + 画面フォーカス時に Supabase から再取得
 	useFocusEffect(
 		useCallback(() => {
-			fetchTrips().then(() => {
+			// 状態更新をまとめた関数
+			const updateState = () => {
 				setTrips(getTrips());
 				setActiveTripId(getActiveTripId());
-			});
+			};
+
+			// 非同期でデータを読み込む関数
+			const loadData = async () => {
+				try {
+					// 1. Supabaseからデータを取得するまで「待機」
+					await fetchTrips();
+					// 2. 取得できたら画面のデータを更新
+					updateState();
+				} catch (error) {
+					console.error("データの取得に失敗しました:", error);
+				} finally {
+					// 3. 成功しても失敗しても、通信が終わったらローディングを終了
+					setIsLoading(false);
+				}
+			};
+
+			// 実行
+			loadData();
+
+			// ストアの購読（リアルタイム更新用）
 			const unsubscribe = subscribe(() => {
-				setTrips(getTrips());
-				setActiveTripId(getActiveTripId());
+				updateState();
 			});
+
 			return unsubscribe;
 		}, []),
 	);
+
+	if (isLoading) {
+		return <SplashScreen />;
+	}
 
 	const formatDate = (dateString: string | null) => {
 		if (!dateString) return "";

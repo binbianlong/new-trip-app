@@ -19,6 +19,7 @@ import {
 import { Colors } from "../src/constants/colors";
 import { supabase } from "../src/lib/supabase";
 import type { User } from "../src/types";
+import { SplashScreen } from "./components/User/SplashScreen";
 
 const AVATAR_BUCKET =
 	process.env.EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET ?? "photos";
@@ -361,12 +362,8 @@ export default function ProfileModal() {
 	};
 
 	if (isLoading) {
-		return (
-			<View style={styles.loadingContainer}>
-				<ActivityIndicator size="large" color={Colors.primary} />
-			</View>
-		);
-	}
+        return <SplashScreen />;
+    }
 
 	return (
 		<KeyboardAvoidingView

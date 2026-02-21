@@ -27,12 +27,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
 import type { Photo, Trip, User } from "../../src/types";
+import { SplashScreen } from "../components/User/SplashScreen";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_WIDTH * 0.52;
 const CARD_SPACING = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
+const [loading, setLoading] = useState(true);
 const PHOTO_FOCUS_DELTA = 0.08;
 
 const JAPAN_REGION: Region = {
@@ -643,13 +645,8 @@ export default function MapScreen() {
 	);
 
 	if (loading) {
-		return (
-			<View style={styles.loadingContainer}>
-				<ActivityIndicator size="large" color={Colors.primary} />
-				<Text style={styles.loadingText}>データを読み込み中...</Text>
-			</View>
-		);
-	}
+        return <SplashScreen />;
+    }
 
 	return (
 		<View style={styles.container}>
