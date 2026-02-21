@@ -71,8 +71,7 @@ export default function TripDetailModal() {
 		const { data: members } = await supabase
 			.from("trip_members")
 			.select("user_id")
-			.eq("trip_id", trip.id)
-			.is("deleted_at", null);
+			.eq("trip_id", trip.id);
 
 		const userIds = (members ?? [])
 			.map((m) => m.user_id)
@@ -101,46 +100,23 @@ export default function TripDetailModal() {
 			}
 
 			try {
-				const { data: existingMember, error: existingError } = await supabase
+				const now = new Date().toISOString();
+				const { error: insertError } = await supabase
 					.from("trip_members")
-					.select("id,deleted_at")
-					.eq("trip_id", trip.id)
-					.eq("user_id", user.id)
-					.order("id", { ascending: false })
-					.limit(1)
-					.maybeSingle();
-				if (existingError) {
-					throw existingError;
-				}
+					.insert([
+						{
+							trip_id: trip.id,
+							user_id: user.id,
+							joined_at: now,
+						},
+					]);
 
-				if (existingMember?.id) {
-					if (existingMember.deleted_at == null) {
-						Alert.alert("追加済み", "このユーザーは既に参加者です");
-						setParticipantModalVisible(false);
-						return;
-					}
+				if (insertError) {
+					const isDuplicateError =
+						insertError.code === "23505" ||
+						insertError.message.includes("duplicate key");
 
-					const { error: restoreError } = await supabase
-						.from("trip_members")
-						.update({
-							deleted_at: null,
-							joined_at: new Date().toISOString(),
-						})
-						.eq("id", existingMember.id);
-					if (restoreError) {
-						throw restoreError;
-					}
-				} else {
-					const { error: insertError } = await supabase
-						.from("trip_members")
-						.insert([
-							{
-								trip_id: trip.id,
-								user_id: user.id,
-								joined_at: new Date().toISOString(),
-							},
-						]);
-					if (insertError) {
+					if (!isDuplicateError) {
 						throw insertError;
 					}
 				}
@@ -148,10 +124,15 @@ export default function TripDetailModal() {
 				await fetchParticipants();
 				setParticipantModalVisible(false);
 			} catch (error) {
-				Alert.alert(
-					"追加エラー",
-					error instanceof Error ? error.message : "参加者の追加に失敗しました",
-				);
+				console.error("Failed to add participant:", error);
+				const message =
+					typeof error === "object" &&
+					error != null &&
+					"message" in error &&
+					typeof error.message === "string"
+						? error.message
+						: "参加者の追加に失敗しました";
+				Alert.alert("追加エラー", message);
 			}
 		},
 		[participants, trip.id, fetchParticipants],
