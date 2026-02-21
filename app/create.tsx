@@ -110,10 +110,11 @@ export default function CreateScreen() {
 			await ensureTripMembers(createdTrip.id, uniqueParticipantIds);
 
 			if (selectedParticipants.length > 0) {
+				const addedUserIds = selectedParticipants.map((p) => p.id);
 				const addedNames = selectedParticipants.map(
 					(p) => p.profile_name ?? p.username ?? "ユーザー",
 				);
-				void notifyMemberInvited(data.title, addedNames);
+				void notifyMemberInvited(data.title, addedUserIds, addedNames);
 			}
 
 			await fetchTrips();

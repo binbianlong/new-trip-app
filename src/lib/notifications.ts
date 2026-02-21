@@ -1,9 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import { supabase } from "./supabase";
 
 const STORAGE_PREFIX = "notification_";
+const EXPO_PUSH_API = "https://exp.host/--/api/v2/push/send";
 const PHOTO_REMINDER_KEY = (tripId: string) =>
 	`${STORAGE_PREFIX}photo_reminder_${tripId}`;
 const MORNING_GREETING_KEY = (tripId: string, day: number) =>
@@ -173,13 +176,14 @@ export async function cancelAnniversary(tripId: string): Promise<void> {
 	await cancelNotificationByKey(ANNIVERSARY_KEY(tripId));
 }
 
-// --- 4. 参加者招待通知（即時） ---
+// --- 4. 参加者招待通知 ---
 
 export async function notifyMemberInvited(
 	tripTitle: string,
+	addedUserIds: string[],
 	addedNames: string[],
 ): Promise<void> {
-	if (addedNames.length === 0) return;
+	if (addedUserIds.length === 0) return;
 
 	const names = addedNames.join("、");
 	await Notifications.scheduleNotificationAsync({
@@ -191,6 +195,101 @@ export async function notifyMemberInvited(
 		},
 		trigger: null,
 	});
+
+	void sendPushToUsers(
+		addedUserIds,
+		"旅行に招待されました！🎉",
+		`「${tripTitle}」に招待されました。タップして確認しよう！`,
+		{ type: "member_invited" },
+	);
+}
+
+// --- プッシュトークンの登録 ---
+
+export async function registerPushToken(): Promise<string | null> {
+	if (!Device.isDevice) return null;
+
+	const { status } = await Notifications.getPermissionsAsync();
+	if (status !== "granted") return null;
+
+	try {
+		const projectId =
+			Constants.expoConfig?.extra?.eas?.projectId ??
+			(Constants as unknown as { easConfig?: { projectId?: string } }).easConfig
+				?.projectId;
+
+		const tokenData = await Notifications.getExpoPushTokenAsync(
+			projectId ? { projectId } : undefined,
+		);
+		const token = tokenData.data;
+
+		const {
+			data: { user },
+		} = await supabase.auth.getUser();
+		if (!user) return token;
+
+		const { data: existing } = await supabase
+			.from("users")
+			.select("expo_push_token")
+			.eq("id", user.id)
+			.single();
+
+		if (existing?.expo_push_token !== token) {
+			await supabase
+				.from("users")
+				.update({ expo_push_token: token })
+				.eq("id", user.id);
+		}
+
+		return token;
+	} catch (error) {
+		console.error("registerPushToken error:", error);
+		return null;
+	}
+}
+
+// --- プッシュ通知の送信 ---
+
+async function sendPushToUsers(
+	userIds: string[],
+	title: string,
+	body: string,
+	data: Record<string, unknown>,
+): Promise<void> {
+	if (userIds.length === 0) return;
+
+	try {
+		const { data: users } = await supabase
+			.from("users")
+			.select("expo_push_token")
+			.in("id", userIds)
+			.not("expo_push_token", "is", null);
+
+		const tokens = (users ?? [])
+			.map((u) => u.expo_push_token as string)
+			.filter((t) => t.startsWith("ExponentPushToken["));
+
+		if (tokens.length === 0) return;
+
+		const messages = tokens.map((to) => ({
+			to,
+			title,
+			body,
+			data,
+			sound: "default" as const,
+		}));
+
+		await fetch(EXPO_PUSH_API, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+			},
+			body: JSON.stringify(messages),
+		});
+	} catch (error) {
+		console.error("sendPushToUsers error:", error);
+	}
 }
 
 // --- 旅行終了時の一括キャンセル ---

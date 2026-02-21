@@ -150,6 +150,7 @@ export default function TabLayout() {
 				null,
 			email: user.email ?? null,
 			avatar_url: fallbackAvatarUrl,
+			expo_push_token: null,
 			created_at: null,
 			updated_at: null,
 			deleted_at: null,

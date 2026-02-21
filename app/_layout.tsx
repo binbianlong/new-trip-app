@@ -4,6 +4,7 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useRef } from "react";
 import { useAuth } from "../src/hooks/useAuth";
 import {
+	registerPushToken,
 	saveNotificationToHistory,
 	setupNotifications,
 } from "../src/lib/notifications";
@@ -61,7 +62,9 @@ export default function RootLayout() {
 	> | null>(null);
 
 	useEffect(() => {
-		void setupNotifications();
+		void setupNotifications().then(() => {
+			void registerPushToken();
+		});
 
 		listenerRef.current = Notifications.addNotificationReceivedListener(
 			(notification) => {

@@ -854,11 +854,14 @@ export default function TripDetailModal() {
 
 			if (participantIdsToAdd.length > 0) {
 				await ensureTripMembers(trip.id, participantIdsToAdd);
-
 				const addedNames = editingParticipants
 					.filter((p) => participantIdsToAdd.includes(p.id))
 					.map((p) => p.profile_name ?? p.username ?? "ユーザー");
-				void notifyMemberInvited(trip.title ?? "旅行", addedNames);
+				void notifyMemberInvited(
+					trip.title ?? "旅行",
+					participantIdsToAdd,
+					addedNames,
+				);
 			}
 
 			if (memberRowIdsToRemove.length > 0) {
