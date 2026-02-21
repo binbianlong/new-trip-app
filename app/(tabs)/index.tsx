@@ -22,14 +22,35 @@ export default function HomeScreen() {
 	// ストアの変更を監視 + 画面フォーカス時に Supabase から再取得
 	useFocusEffect(
 		useCallback(() => {
-			fetchTrips().then(() => {
+			// 状態更新をまとめた関数
+			const updateState = () => {
 				setTrips(getTrips());
 				setActiveTripId(getActiveTripId());
-			});
+			};
+
+			// 非同期でデータを読み込む関数
+			const loadData = async () => {
+				try {
+					// 1. Supabaseからデータを取得するまで「待機」
+					await fetchTrips();
+					// 2. 取得できたら画面のデータを更新
+					updateState();
+				} catch (error) {
+					console.error("データの取得に失敗しました:", error);
+				} finally {
+					// 3. 成功しても失敗しても、通信が終わったらローディングを終了
+					setIsLoading(false);
+				}
+			};
+
+			// 実行
+			loadData();
+
+			// ストアの購読（リアルタイム更新用）
 			const unsubscribe = subscribe(() => {
-				setTrips(getTrips());
-				setActiveTripId(getActiveTripId());
+				updateState();
 			});
+
 			return unsubscribe;
 		}, []),
 	);
