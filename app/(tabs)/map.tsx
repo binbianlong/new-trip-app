@@ -6,9 +6,9 @@ import {
 	InterruptionModeIOS,
 } from "expo-av";
 import { useFocusEffect } from "expo-router";
+import * as ScreenCapture from "expo-screen-capture";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-	ActivityIndicator,
 	Alert,
 	Animated,
 	Dimensions,
@@ -37,7 +37,6 @@ const CARD_WIDTH = SCREEN_WIDTH * 0.52;
 const CARD_SPACING = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
-const [loading, setLoading] = useState(true);
 const PHOTO_FOCUS_DELTA = 0.08;
 const SNAPSHOT_PHOTO_PIN_SIZE = 96;
 const SNAPSHOT_PHOTO_PIN_IMAGE_SIZE = 82;
@@ -589,6 +588,18 @@ export default function MapScreen() {
 		}
 	}, [photosByTrip, selectedTripId, selectedTrip?.title]);
 
+	useEffect(() => {
+		if (!selectedTripId) return;
+
+		const subscription = ScreenCapture.addScreenshotListener(() => {
+			void handleTripSnapshot();
+		});
+
+		return () => {
+			subscription.remove();
+		};
+	}, [selectedTripId, handleTripSnapshot]);
+
 	/** 全旅行が収まるようにマップを縮小 */
 	const handleFitAllTrips = useCallback(() => {
 		const allPositions = Object.entries(tripPositions);
@@ -735,8 +746,8 @@ export default function MapScreen() {
 	);
 
 	if (loading) {
-        return <SplashScreen />;
-    }
+		return <SplashScreen />;
+	}
 
 	return (
 		<View style={styles.container}>
