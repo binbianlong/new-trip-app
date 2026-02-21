@@ -58,8 +58,11 @@ export default function TripDetailModal() {
 
 	// この旅行の参加者ユーザーを Supabase から取得
 	const [participants, setParticipants] = useState<User[]>([]);
+	const [editingParticipants, setEditingParticipants] = useState<User[]>([]);
 	const [participantModalVisible, setParticipantModalVisible] = useState(false);
 	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+	// 編集モードの状態管理
+	const [isEditing, setIsEditing] = useState(false);
 
 	useEffect(() => {
 		void supabase.auth.getUser().then(({ data }) => {
@@ -71,8 +74,7 @@ export default function TripDetailModal() {
 		const { data: members } = await supabase
 			.from("trip_members")
 			.select("user_id")
-			.eq("trip_id", trip.id)
-			.is("deleted_at", null);
+			.eq("trip_id", trip.id);
 
 		const userIds = (members ?? [])
 			.map((m) => m.user_id)
@@ -93,72 +95,40 @@ export default function TripDetailModal() {
 		fetchParticipants();
 	}, [fetchParticipants]);
 
+	useEffect(() => {
+		if (!isEditing) {
+			setEditingParticipants(participants);
+		}
+	}, [participants, isEditing]);
+
 	const handleAddParticipant = useCallback(
-		async (user: User) => {
-			if (participants.some((participant) => participant.id === user.id)) {
+		(user: User) => {
+			if (
+				editingParticipants.some((participant) => participant.id === user.id)
+			) {
 				Alert.alert("追加済み", "このユーザーは既に参加者です");
 				return;
 			}
 
-			try {
-				const { data: existingMember, error: existingError } = await supabase
-					.from("trip_members")
-					.select("id,deleted_at")
-					.eq("trip_id", trip.id)
-					.eq("user_id", user.id)
-					.order("id", { ascending: false })
-					.limit(1)
-					.maybeSingle();
-				if (existingError) {
-					throw existingError;
-				}
-
-				if (existingMember?.id) {
-					if (existingMember.deleted_at == null) {
-						Alert.alert("追加済み", "このユーザーは既に参加者です");
-						setParticipantModalVisible(false);
-						return;
-					}
-
-					const { error: restoreError } = await supabase
-						.from("trip_members")
-						.update({
-							deleted_at: null,
-							joined_at: new Date().toISOString(),
-						})
-						.eq("id", existingMember.id);
-					if (restoreError) {
-						throw restoreError;
-					}
-				} else {
-					const { error: insertError } = await supabase
-						.from("trip_members")
-						.insert([
-							{
-								trip_id: trip.id,
-								user_id: user.id,
-								joined_at: new Date().toISOString(),
-							},
-						]);
-					if (insertError) {
-						throw insertError;
-					}
-				}
-
-				await fetchParticipants();
-				setParticipantModalVisible(false);
-			} catch (error) {
-				Alert.alert(
-					"追加エラー",
-					error instanceof Error ? error.message : "参加者の追加に失敗しました",
-				);
-			}
+			setEditingParticipants((prev) => [...prev, user]);
+			setParticipantModalVisible(false);
 		},
-		[participants, trip.id, fetchParticipants],
+		[editingParticipants],
 	);
 
-	// 編集モードの状態管理
-	const [isEditing, setIsEditing] = useState(false);
+	const handleRemoveParticipant = useCallback(
+		(user: User) => {
+			if (trip.owner_user_id != null && user.id === trip.owner_user_id) {
+				Alert.alert("削除不可", "旅行作成者は参加者から削除できません");
+				return;
+			}
+
+			setEditingParticipants((prev) =>
+				prev.filter((participant) => participant.id !== user.id),
+			);
+		},
+		[trip.owner_user_id],
+	);
 
 	// react-hook-form（create.tsx と同じ実装）
 	const {
@@ -252,7 +222,7 @@ export default function TripDetailModal() {
 	const onSave: SubmitHandler<TripFormData> = async (data) => {
 		setIsSaving(true);
 		try {
-			const { error } = await supabase
+			const { error: tripUpdateError } = await supabase
 				.from("trips")
 				.update({
 					title: data.title,
@@ -261,12 +231,83 @@ export default function TripDetailModal() {
 				})
 				.eq("id", trip.id);
 
-			if (error) {
-				console.error("Trip update error:", error);
-				Alert.alert("エラー", `保存に失敗しました\n${error.message}`);
+			if (tripUpdateError) {
+				console.error("Trip update error:", tripUpdateError);
+				Alert.alert("エラー", `保存に失敗しました\n${tripUpdateError.message}`);
 				return;
 			}
 
+			const { data: currentMembers, error: currentMembersError } =
+				await supabase
+					.from("trip_members")
+					.select("id,user_id")
+					.eq("trip_id", trip.id);
+			if (currentMembersError) {
+				throw currentMembersError;
+			}
+
+			const currentParticipantIds = new Set(
+				(currentMembers ?? [])
+					.map((member) => member.user_id)
+					.filter((userId): userId is string => userId != null),
+			);
+			const nextParticipantIds = new Set(
+				editingParticipants.map((participant) => participant.id),
+			);
+
+			const participantIdsToAdd = [...nextParticipantIds].filter(
+				(userId) => !currentParticipantIds.has(userId),
+			);
+			const participantIdsToRemove = [...currentParticipantIds].filter(
+				(userId) => !nextParticipantIds.has(userId),
+			);
+			const memberRowIdsToRemove = (currentMembers ?? [])
+				.filter((member) => {
+					return (
+						member.user_id != null &&
+						participantIdsToRemove.includes(member.user_id)
+					);
+				})
+				.map((member) => member.id)
+				.filter((memberId): memberId is number => memberId != null);
+
+			if (participantIdsToAdd.length > 0) {
+				const now = new Date().toISOString();
+				const rowsToInsert = participantIdsToAdd.map((userId) => ({
+					trip_id: trip.id,
+					user_id: userId,
+					joined_at: now,
+				}));
+				const { error: addError } = await supabase
+					.from("trip_members")
+					.insert(rowsToInsert);
+				if (addError) {
+					const isDuplicateError =
+						addError.code === "23505" ||
+						addError.message.includes("duplicate key");
+					if (!isDuplicateError) {
+						throw addError;
+					}
+				}
+			}
+
+			if (memberRowIdsToRemove.length > 0) {
+				const { data: removedRows, error: removeError } = await supabase
+					.from("trip_members")
+					.delete()
+					.in("id", memberRowIdsToRemove)
+					.select("id");
+				if (removeError) {
+					throw removeError;
+				}
+				if ((removedRows?.length ?? 0) !== memberRowIdsToRemove.length) {
+					throw new Error(
+						"参加者の削除が反映されませんでした。trip_members の DELETE 権限（RLS）を確認してください。",
+					);
+				}
+			}
+
+			await fetchParticipants();
 			await fetchTrips();
 			setIsEditing(false);
 			Alert.alert("保存完了", "変更を保存しました");
@@ -293,6 +334,7 @@ export default function TripDetailModal() {
 						<Pressable
 							onPress={() => {
 								reset();
+								setEditingParticipants(participants);
 								setIsEditing(false);
 							}}
 							style={styles.headerButton}
@@ -310,7 +352,10 @@ export default function TripDetailModal() {
 						</Pressable>
 					) : (
 						<Pressable
-							onPress={() => setIsEditing(true)}
+							onPress={() => {
+								setEditingParticipants(participants);
+								setIsEditing(true);
+							}}
 							style={styles.headerButton}
 						>
 							<Ionicons
@@ -387,25 +432,42 @@ export default function TripDetailModal() {
 				<View style={styles.field}>
 					<Text style={styles.label}>参加者</Text>
 					<View style={styles.participants}>
-						{participants.map((user) => (
-							<View key={user.id} style={styles.participantItem}>
-								{user.avatar_url ? (
-									<Image
-										source={{ uri: user.avatar_url }}
-										style={styles.avatar}
-									/>
-								) : (
-									<View style={styles.avatarFallback}>
-										<Text style={styles.avatarInitial}>
-											{user.profile_name?.charAt(0) ?? "?"}
-										</Text>
+						{(isEditing ? editingParticipants : participants).map((user) => {
+							const displayName =
+								user.profile_name ?? user.username ?? "未設定";
+							const canRemove =
+								isEditing &&
+								(trip.owner_user_id == null || user.id !== trip.owner_user_id);
+
+							return (
+								<View key={user.id} style={styles.participantItem}>
+									<View style={styles.avatarWrap}>
+										{user.avatar_url ? (
+											<Image
+												source={{ uri: user.avatar_url }}
+												style={styles.avatar}
+											/>
+										) : (
+											<View style={styles.avatarFallback}>
+												<Text style={styles.avatarInitial}>
+													{displayName.charAt(0)}
+												</Text>
+											</View>
+										)}
+										{canRemove && (
+											<Pressable
+												onPress={() => handleRemoveParticipant(user)}
+												style={styles.removeParticipantButton}
+												hitSlop={8}
+											>
+												<Ionicons name="close" size={11} color={Colors.white} />
+											</Pressable>
+										)}
 									</View>
-								)}
-								<Text style={styles.participantName}>
-									{user.profile_name ?? user.username ?? "未設定"}
-								</Text>
-							</View>
-						))}
+									<Text style={styles.participantName}>{displayName}</Text>
+								</View>
+							);
+						})}
 					</View>
 					{/* 編集中は参加者追加ボタンを表示 */}
 					{isEditing && (
@@ -569,7 +631,9 @@ export default function TripDetailModal() {
 				visible={participantModalVisible}
 				onClose={() => setParticipantModalVisible(false)}
 				onSelectUser={handleAddParticipant}
-				selectedUserIds={participants.map((participant) => participant.id)}
+				selectedUserIds={editingParticipants.map(
+					(participant) => participant.id,
+				)}
 				excludeUserIds={currentUserId ? [currentUserId] : []}
 			/>
 		</KeyboardAvoidingView>
@@ -707,6 +771,9 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		gap: 6,
 	},
+	avatarWrap: {
+		position: "relative",
+	},
 	avatar: {
 		width: 48,
 		height: 48,
@@ -730,6 +797,19 @@ const styles = StyleSheet.create({
 		color: Colors.black,
 		textAlign: "center",
 		maxWidth: 60,
+	},
+	removeParticipantButton: {
+		position: "absolute",
+		top: -4,
+		right: -4,
+		width: 18,
+		height: 18,
+		borderRadius: 9,
+		backgroundColor: Colors.danger,
+		borderWidth: 1,
+		borderColor: Colors.white,
+		alignItems: "center",
+		justifyContent: "center",
 	},
 	// create.tsx と同じ dashed ボタン
 	addParticipantButton: {
