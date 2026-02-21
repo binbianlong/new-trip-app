@@ -48,7 +48,7 @@ export async function fetchTrips(): Promise<void> {
 		.from("trip_members")
 		.select("trip_id")
 		.eq("user_id", user.id)
-		.is("deletead_at", null);
+		.is("deleted_at", null);
 
 	const tripIds = (memberRows ?? [])
 		.map((r) => r.trip_id)
