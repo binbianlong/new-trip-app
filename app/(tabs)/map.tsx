@@ -14,6 +14,8 @@ import {
 	type FlatList,
 	Image,
 	Modal,
+	type NativeScrollEvent,
+	type NativeSyntheticEvent,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -31,6 +33,7 @@ const CARD_WIDTH = SCREEN_WIDTH * 0.52;
 const CARD_SPACING = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
+const PHOTO_FOCUS_DELTA = 0.08;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -466,23 +469,29 @@ export default function MapScreen() {
 		[selectedTripId],
 	);
 
-	const handlePhotoCardPress = useCallback((photo: Photo) => {
-		if (photo.image_url) {
-			setPreviewPhoto(photo);
-		}
-		if (photo.lat != null && photo.lng != null) {
-			setFocusedPhotoId(photo.id);
-			mapRef.current?.animateToRegion(
-				{
-					latitude: photo.lat,
-					longitude: photo.lng,
-					latitudeDelta: 0.02,
-					longitudeDelta: 0.02,
-				},
-				400,
-			);
-		}
+	const focusPhotoOnMap = useCallback((photo: Photo, duration = 400) => {
+		setFocusedPhotoId(photo.id);
+		if (photo.lat == null || photo.lng == null) return;
+		mapRef.current?.animateToRegion(
+			{
+				latitude: photo.lat,
+				longitude: photo.lng,
+				latitudeDelta: PHOTO_FOCUS_DELTA,
+				longitudeDelta: PHOTO_FOCUS_DELTA,
+			},
+			duration,
+		);
 	}, []);
+
+	const handlePhotoCardPress = useCallback(
+		(photo: Photo) => {
+			if (photo.image_url) {
+				setPreviewPhoto(photo);
+			}
+			focusPhotoOnMap(photo);
+		},
+		[focusPhotoOnMap],
+	);
 
 	const handleMapPress = useCallback(() => {
 		setFocusedPhotoId(null);
@@ -518,31 +527,35 @@ export default function MapScreen() {
 		);
 	}, [tripPositions, selectedTripId, filteredTripIds]);
 
-	const onViewableItemsChanged = useCallback(
-		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
-			if (viewableItems.length === 0) return;
-			const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
-			if (!centerItem) return;
-			const photo = centerItem.item;
-			setFocusedPhotoId(photo.id);
-			if (photo.lat != null && photo.lng != null) {
-				mapRef.current?.animateToRegion(
-					{
-						latitude: photo.lat,
-						longitude: photo.lng,
-						latitudeDelta: 0.02,
-						longitudeDelta: 0.02,
-					},
-					300,
-				);
-			}
+	const focusPhotoFromOffset = useCallback(
+		(offsetX: number, duration = 300) => {
+			if (selectedPhotos.length === 0) return;
+			const rawIndex = Math.round(offsetX / SNAP_INTERVAL);
+			const clampedIndex = Math.min(
+				Math.max(rawIndex, 0),
+				selectedPhotos.length - 1,
+			);
+			const photo = selectedPhotos[clampedIndex];
+			if (!photo) return;
+			focusPhotoOnMap(photo, duration);
 		},
-		[],
+		[selectedPhotos, focusPhotoOnMap],
 	);
 
-	const viewabilityConfig = useMemo(
-		() => ({ itemVisiblePercentThreshold: 60 }),
-		[],
+	const handlePhotoListMomentumEnd = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			focusPhotoFromOffset(event.nativeEvent.contentOffset.x, 300);
+		},
+		[focusPhotoFromOffset],
+	);
+
+	const handlePhotoListScrollEndDrag = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			const xVelocity = event.nativeEvent.velocity?.x ?? 0;
+			if (Math.abs(xVelocity) > 0.05) return;
+			focusPhotoFromOffset(event.nativeEvent.contentOffset.x, 300);
+		},
+		[focusPhotoFromOffset],
 	);
 
 	const renderPhotoCard = useCallback(
@@ -876,8 +889,8 @@ export default function MapScreen() {
 								{ useNativeDriver: true },
 							)}
 							scrollEventThrottle={16}
-							onViewableItemsChanged={onViewableItemsChanged}
-							viewabilityConfig={viewabilityConfig}
+							onScrollEndDrag={handlePhotoListScrollEndDrag}
+							onMomentumScrollEnd={handlePhotoListMomentumEnd}
 							getItemLayout={(_, index) => ({
 								length: SNAP_INTERVAL,
 								offset: SNAP_INTERVAL * index,
