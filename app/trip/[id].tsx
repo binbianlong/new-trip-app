@@ -1405,15 +1405,15 @@ export default function TripDetailModal() {
 						<Text style={styles.startButtonText}>旅行中画面を開く</Text>
 					</Pressable>
 				) : isThisTripFinished ? (
-					<View style={styles.finishedButton}>
+					<Pressable style={styles.finishedButton} onPress={handleResume}>
 						<Ionicons
-							name="flag-outline"
+							name="camera-outline"
 							size={20}
 							color={Colors.white}
 							style={styles.startIcon}
 						/>
-						<Text style={styles.startButtonText}>この旅行は完了済みです</Text>
-					</View>
+						<Text style={styles.startButtonText}>完了済み旅行に写真を追加</Text>
+					</Pressable>
 				) : isOtherTripActive ? (
 					<View style={styles.lockedButton}>
 						<Ionicons
