@@ -91,6 +91,7 @@ export default function MapScreen() {
 	const scrollX = useRef(new Animated.Value(0)).current;
 	const tripScrollX = useRef(new Animated.Value(0)).current;
 	const isTripScrollProgrammatic = useRef(false);
+	const isTripDeselected = useRef(false);
 	const tripThemeSoundRef = useRef<Audio.Sound | null>(null);
 	const tripThemeSourceRef = useRef<{
 		tripId: string;
@@ -503,6 +504,9 @@ export default function MapScreen() {
 				isTripScrollProgrammatic.current = false;
 				return;
 			}
+			if (isTripDeselected.current) {
+				return;
+			}
 			const offsetX = e.nativeEvent.contentOffset.x;
 			const index = Math.round(offsetX / TRIP_SNAP_INTERVAL);
 			const trip = filteredTrips[index];
@@ -513,6 +517,12 @@ export default function MapScreen() {
 		},
 		[filteredTrips, selectedTripId],
 	);
+
+	const handleTripCarouselScrollBeginDrag = useCallback(() => {
+		if (isTripDeselected.current) {
+			isTripDeselected.current = false;
+		}
+	}, []);
 
 	const focusPhotoOnMap = useCallback((photo: Photo, duration = 400) => {
 		setFocusedPhotoId(photo.id);
@@ -686,6 +696,17 @@ export default function MapScreen() {
 									size={14}
 									color={Colors.white}
 								/>
+							</TouchableOpacity>
+							<TouchableOpacity
+								style={styles.tripCarouselClose}
+								onPress={() => {
+									isTripDeselected.current = true;
+									setSelectedTripId(null);
+									setFocusedPhotoId(null);
+								}}
+								hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+							>
+								<Ionicons name="close" size={14} color={Colors.white} />
 							</TouchableOpacity>
 						</View>
 						<View style={styles.tripCarouselMeta}>
@@ -1045,6 +1066,7 @@ export default function MapScreen() {
 							{ useNativeDriver: true },
 						)}
 						scrollEventThrottle={16}
+						onScrollBeginDrag={handleTripCarouselScrollBeginDrag}
 						onMomentumScrollEnd={handleTripCarouselScrollEnd}
 						getItemLayout={(_, index) => ({
 							length: TRIP_SNAP_INTERVAL,
@@ -1250,6 +1272,14 @@ const styles = StyleSheet.create({
 		height: 26,
 		borderRadius: 13,
 		backgroundColor: Colors.primary,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	tripCarouselClose: {
+		width: 22,
+		height: 22,
+		borderRadius: 11,
+		backgroundColor: "rgba(0,0,0,0.25)",
 		justifyContent: "center",
 		alignItems: "center",
 	},
