@@ -3,15 +3,18 @@ import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Alert,
-	FlatList,
+	Animated,
+	Dimensions,
+	type FlatList,
 	Image,
 	Pressable,
 	StyleSheet,
 	Text,
+	TouchableOpacity,
 	View,
 } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
@@ -20,6 +23,12 @@ import { Colors } from "../../src/constants/colors";
 import { supabase } from "../../src/lib/supabase";
 import { fetchTrips, updateTripStatus } from "../../src/store/tripStore";
 import type { Photo, Trip, User } from "../../src/types";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const CARD_WIDTH = SCREEN_WIDTH * 0.52;
+const CARD_SPACING = 12;
+const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
+const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -38,6 +47,9 @@ export default function ActiveTripScreen() {
 	const [photos, setPhotos] = useState<Photo[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [isSaving, setIsSaving] = useState(false);
+	const [focusedPhotoId, setFocusedPhotoId] = useState<number | null>(null);
+	const photoListRef = useRef<FlatList<Photo>>(null);
+	const scrollX = useRef(new Animated.Value(0)).current;
 
 	// --- データ取得（Supabase） ---
 	const fetchTripData = useCallback(async () => {
@@ -245,6 +257,105 @@ export default function ActiveTripScreen() {
 		]);
 	}, [tripId, router]);
 
+	const onViewableItemsChanged = useCallback(
+		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
+			if (viewableItems.length === 0) return;
+			const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
+			if (!centerItem) return;
+			const photo = centerItem.item;
+			setFocusedPhotoId(photo.id);
+			if (photo.lat != null && photo.lng != null) {
+				mapRef.current?.animateToRegion(
+					{
+						latitude: photo.lat,
+						longitude: photo.lng,
+						latitudeDelta: 0.005,
+						longitudeDelta: 0.005,
+					},
+					300,
+				);
+			}
+		},
+		[],
+	);
+
+	const viewabilityConfig = useMemo(
+		() => ({ itemVisiblePercentThreshold: 60 }),
+		[],
+	);
+
+	const renderPhotoCard = useCallback(
+		({ item, index }: { item: Photo; index: number }) => {
+			const inputRange = [
+				(index - 1) * SNAP_INTERVAL,
+				index * SNAP_INTERVAL,
+				(index + 1) * SNAP_INTERVAL,
+			];
+			const scale = scrollX.interpolate({
+				inputRange,
+				outputRange: [0.85, 1, 0.85],
+				extrapolate: "clamp",
+			});
+			const opacity = scrollX.interpolate({
+				inputRange,
+				outputRange: [0.6, 1, 0.6],
+				extrapolate: "clamp",
+			});
+			return (
+				<Animated.View
+					style={{
+						width: CARD_WIDTH,
+						transform: [{ scale }],
+						opacity,
+					}}
+				>
+					<TouchableOpacity
+						style={styles.photoCard}
+						onPress={() => {
+							const idx = photos.findIndex((p) => p.id === item.id);
+							if (idx >= 0) {
+								photoListRef.current?.scrollToIndex({
+									index: idx,
+									animated: true,
+									viewPosition: 0.5,
+								});
+							}
+						}}
+						activeOpacity={0.9}
+					>
+						<View style={styles.photoCardImage}>
+							{item.image_url ? (
+								<Image
+									source={{ uri: item.image_url }}
+									style={styles.photoCardImageFull}
+								/>
+							) : (
+								<View style={styles.photoCardPlaceholder}>
+									<Ionicons
+										name="image-outline"
+										size={32}
+										color={Colors.grayLight}
+									/>
+								</View>
+							)}
+						</View>
+						{item.created_at && (
+							<Text style={styles.photoCardDate} numberOfLines={1}>
+								{new Date(item.created_at).toLocaleString("ja-JP", {
+									month: "short",
+									day: "numeric",
+									hour: "2-digit",
+									minute: "2-digit",
+								})}
+							</Text>
+						)}
+					</TouchableOpacity>
+				</Animated.View>
+			);
+		},
+		[scrollX, photos],
+	);
+
 	if (loading) {
 		return (
 			<View style={styles.loadingContainer}>
@@ -326,39 +437,34 @@ export default function ActiveTripScreen() {
 				)}
 			</SafeAreaView>
 
-			{/* 写真サムネイル一覧 */}
+			{/* 写真カード一覧 */}
 			{photos.length > 0 && (
-				<View style={styles.thumbnailStrip}>
-					<Text style={styles.photoCount}>{photos.length}枚の写真</Text>
-					<FlatList
+				<View style={styles.photoPanel}>
+					<Animated.FlatList
+						ref={photoListRef}
 						data={photos}
-						horizontal
 						keyExtractor={(item) => String(item.id)}
+						renderItem={renderPhotoCard}
+						horizontal
 						showsHorizontalScrollIndicator={false}
-						contentContainerStyle={styles.thumbnailList}
-						renderItem={({ item }) => (
-							<Pressable
-								style={styles.thumbnailItem}
-								onPress={() => {
-									if (item.lat != null && item.lng != null) {
-										mapRef.current?.animateToRegion(
-											{
-												latitude: item.lat,
-												longitude: item.lng,
-												latitudeDelta: 0.005,
-												longitudeDelta: 0.005,
-											},
-											500,
-										);
-									}
-								}}
-							>
-								<Image
-									source={{ uri: item.image_url ?? "" }}
-									style={styles.thumbnailImage}
-								/>
-							</Pressable>
+						contentContainerStyle={styles.photoList}
+						ItemSeparatorComponent={() => (
+							<View style={styles.photoSeparator} />
 						)}
+						snapToInterval={SNAP_INTERVAL}
+						decelerationRate="fast"
+						onScroll={Animated.event(
+							[{ nativeEvent: { contentOffset: { x: scrollX } } }],
+							{ useNativeDriver: true },
+						)}
+						scrollEventThrottle={16}
+						onViewableItemsChanged={onViewableItemsChanged}
+						viewabilityConfig={viewabilityConfig}
+						getItemLayout={(_, index) => ({
+							length: SNAP_INTERVAL,
+							offset: SNAP_INTERVAL * index,
+							index,
+						})}
 					/>
 				</View>
 			)}
@@ -512,42 +618,53 @@ const styles = StyleSheet.create({
 		opacity: 0.5,
 	},
 
-	/* 写真サムネイル一覧 */
-	thumbnailStrip: {
+	/* 写真カード一覧 */
+	photoPanel: {
 		position: "absolute",
 		bottom: 160,
 		left: 0,
 		right: 0,
-		backgroundColor: "rgba(255,255,255,0.92)",
-		paddingVertical: 8,
+		backgroundColor: "transparent",
 	},
-	photoCount: {
-		fontSize: 12,
-		fontWeight: "600",
-		color: Colors.gray,
-		paddingHorizontal: 16,
-		marginBottom: 4,
+	photoList: {
+		paddingHorizontal: SIDE_PADDING,
+		alignItems: "center" as const,
 	},
-	thumbnailList: {
-		paddingHorizontal: 12,
-		gap: 8,
+	photoSeparator: {
+		width: CARD_SPACING,
 	},
-	thumbnailItem: {
-		width: 56,
-		height: 56,
-		borderRadius: 8,
+	photoCard: {
+		width: CARD_WIDTH,
+		borderRadius: 14,
+		backgroundColor: Colors.white,
 		overflow: "hidden",
-		borderWidth: 2,
-		borderColor: Colors.white,
 		shadowColor: Colors.black,
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.15,
-		shadowRadius: 2,
-		elevation: 2,
+		shadowOffset: { width: 0, height: 3 },
+		shadowOpacity: 0.2,
+		shadowRadius: 6,
+		elevation: 5,
 	},
-	thumbnailImage: {
+	photoCardImage: {
+		width: "100%",
+		height: CARD_WIDTH * 0.75,
+	},
+	photoCardImageFull: {
 		width: "100%",
 		height: "100%",
+	},
+	photoCardPlaceholder: {
+		width: "100%",
+		height: "100%",
+		justifyContent: "center" as const,
+		alignItems: "center" as const,
+		backgroundColor: Colors.grayLighter,
+	},
+	photoCardDate: {
+		fontSize: 12,
+		color: Colors.gray,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		textAlign: "center" as const,
 	},
 
 	/* 写真ピン */
