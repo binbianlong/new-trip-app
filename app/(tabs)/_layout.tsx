@@ -3,7 +3,7 @@ import { Tabs, useFocusEffect, usePathname, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "../../src/constants/colors";
-import { getUnreadCount } from "../../src/lib/notifications";
+import { getUnreadCount, registerPushToken } from "../../src/lib/notifications";
 import { supabase } from "../../src/lib/supabase";
 import type { User } from "../../src/types";
 
@@ -161,6 +161,10 @@ export default function TabLayout() {
 		void pathname;
 		fetchProfile();
 	}, [fetchProfile, pathname]);
+
+	useEffect(() => {
+		void registerPushToken();
+	}, []);
 
 	return (
 		<Tabs

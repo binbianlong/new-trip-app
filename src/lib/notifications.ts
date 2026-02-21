@@ -207,10 +207,16 @@ export async function notifyMemberInvited(
 // --- プッシュトークンの登録 ---
 
 export async function registerPushToken(): Promise<string | null> {
-	if (!Device.isDevice) return null;
+	if (!Device.isDevice) {
+		console.warn("[PushToken] シミュレータでは動作しません");
+		return null;
+	}
 
 	const { status } = await Notifications.getPermissionsAsync();
-	if (status !== "granted") return null;
+	if (status !== "granted") {
+		console.warn("[PushToken] 通知の許可がありません:", status);
+		return null;
+	}
 
 	try {
 		const projectId =
@@ -218,32 +224,50 @@ export async function registerPushToken(): Promise<string | null> {
 			(Constants as unknown as { easConfig?: { projectId?: string } }).easConfig
 				?.projectId;
 
+		console.log("[PushToken] projectId:", projectId ?? "(なし・Expo Goモード)");
+
 		const tokenData = await Notifications.getExpoPushTokenAsync(
 			projectId ? { projectId } : undefined,
 		);
 		const token = tokenData.data;
+		console.log("[PushToken] 取得成功:", token);
 
 		const {
 			data: { user },
 		} = await supabase.auth.getUser();
-		if (!user) return token;
+		if (!user) {
+			console.warn("[PushToken] 未ログイン、保存スキップ");
+			return token;
+		}
 
-		const { data: existing } = await supabase
+		const { data: existing, error: selectError } = await supabase
 			.from("users")
 			.select("expo_push_token")
 			.eq("id", user.id)
 			.single();
 
+		if (selectError) {
+			console.error("[PushToken] DB読み取りエラー:", selectError.message);
+		}
+
 		if (existing?.expo_push_token !== token) {
-			await supabase
+			const { error: updateError } = await supabase
 				.from("users")
 				.update({ expo_push_token: token })
 				.eq("id", user.id);
+
+			if (updateError) {
+				console.error("[PushToken] DB保存エラー:", updateError.message);
+			} else {
+				console.log("[PushToken] DB保存完了 user:", user.id);
+			}
+		} else {
+			console.log("[PushToken] 既に最新、スキップ");
 		}
 
 		return token;
 	} catch (error) {
-		console.error("registerPushToken error:", error);
+		console.error("[PushToken] エラー:", error);
 		return null;
 	}
 }
@@ -259,17 +283,32 @@ async function sendPushToUsers(
 	if (userIds.length === 0) return;
 
 	try {
-		const { data: users } = await supabase
+		const { data: users, error: fetchError } = await supabase
 			.from("users")
-			.select("expo_push_token")
+			.select("id, expo_push_token")
 			.in("id", userIds)
 			.not("expo_push_token", "is", null);
+
+		if (fetchError) {
+			console.error("[Push] トークン取得エラー:", fetchError.message);
+			return;
+		}
+
+		console.log(
+			"[Push] 対象ユーザー:",
+			userIds.length,
+			"トークンあり:",
+			users?.length ?? 0,
+		);
 
 		const tokens = (users ?? [])
 			.map((u) => u.expo_push_token as string)
 			.filter((t) => t.startsWith("ExponentPushToken["));
 
-		if (tokens.length === 0) return;
+		if (tokens.length === 0) {
+			console.warn("[Push] 有効なトークンがありません");
+			return;
+		}
 
 		const messages = tokens.map((to) => ({
 			to,
@@ -279,7 +318,7 @@ async function sendPushToUsers(
 			sound: "default" as const,
 		}));
 
-		await fetch(EXPO_PUSH_API, {
+		const response = await fetch(EXPO_PUSH_API, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -287,8 +326,11 @@ async function sendPushToUsers(
 			},
 			body: JSON.stringify(messages),
 		});
+
+		const result = await response.json();
+		console.log("[Push] 送信結果:", JSON.stringify(result));
 	} catch (error) {
-		console.error("sendPushToUsers error:", error);
+		console.error("[Push] 送信エラー:", error);
 	}
 }
 
