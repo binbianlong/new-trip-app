@@ -2,30 +2,61 @@ import "react-native-url-polyfill/auto";
 import type { JwtPayload } from "@supabase/supabase-js";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Pressable,
+	ScrollView,
+	StyleSheet,
+	Text,
+	View,
+} from "react-native";
 import { supabase } from "../../../src/lib/supabase";
 import Auth from "../../components/Auth";
 
 export default function App() {
 	const [claims, setClaims] = useState<JwtPayload | null>(null);
+	const [isLoading, setIsLoading] = useState(true); // 1. ローディング状態の初期値をtrueに
 	const router = useRouter();
 
 	useEffect(() => {
-		supabase.auth.getClaims().then(({ data }) => {
+		// データ取得処理
+		const fetchData = async () => {
+			const { data } = await supabase.auth.getClaims();
 			if (data) {
 				setClaims(data.claims);
 			}
+		};
+
+		fetchData();
+
+		// 2. 5秒後にローディングを終了させるタイマー
+		const timer = setTimeout(() => {
+			setIsLoading(false);
+		}, 5000);
+
+		const { data: authListener } = supabase.auth.onAuthStateChange(() => {
+			fetchData();
 		});
 
-		supabase.auth.onAuthStateChange(() => {
-			supabase.auth.getClaims().then(({ data }) => {
-				if (data) {
-					setClaims(data.claims);
-				}
-			});
-		});
+		// クリーンアップ関数（コンポーネントが離れる際にタイマーを解除）
+		return () => {
+			clearTimeout(timer);
+			authListener.subscription.unsubscribe();
+		};
 	}, []);
 
+	// 3. ローディング中の画面（5秒間表示される）
+	if (isLoading) {
+		return (
+			<View style={styles.loadingContainer}>
+				<ActivityIndicator size="large" color="#0000ff" />
+				<Text style={styles.loadingText}>データを読み込み中...</Text>
+				<Text style={styles.subText}>5秒間お待ちください</Text>
+			</View>
+		);
+	}
+
+	// 4. 5秒経過後の本来の画面
 	return (
 		<View style={{ flex: 1, padding: 16 }}>
 			<Auth />
@@ -74,5 +105,21 @@ const styles = StyleSheet.create({
 	claimsText: {
 		fontSize: 12,
 		fontFamily: "monospace",
+	},
+	// 追加したスタイル
+	loadingContainer: {
+		flex: 1,
+		justifyContent: "center",
+		alignItems: "center",
+		backgroundColor: "#ffffff",
+	},
+	loadingText: {
+		marginTop: 10,
+		fontSize: 18,
+		fontWeight: "bold",
+	},
+	subText: {
+		marginTop: 5,
+		color: "#888",
 	},
 });
