@@ -90,6 +90,14 @@ export default function ActiveTripScreen() {
 	const scrollX = useRef(new Animated.Value(0)).current;
 	const isFinishedTrip = trip?.status === "finished";
 
+	const safeGoBack = useCallback(() => {
+		if (router.canGoBack()) {
+			router.back();
+		} else {
+			router.replace("/");
+		}
+	}, [router]);
+
 	// --- データ取得（Supabase） ---
 	const fetchTripData = useCallback(async () => {
 		if (!tripId) return;
@@ -172,8 +180,9 @@ export default function ActiveTripScreen() {
 	}, [tripId]);
 
 	useEffect(() => {
+		if (!tripId) return;
 		fetchTripData();
-	}, [fetchTripData]);
+	}, [tripId, fetchTripData]);
 
 	// --- データ保存 ---
 	const savePhoto = useCallback(
@@ -536,11 +545,11 @@ export default function ActiveTripScreen() {
 						}
 					}
 					await fetchTrips();
-					router.back();
+					safeGoBack();
 				},
 			},
 		]);
-	}, [tripId, router, trip?.title, trip?.start_date]);
+	}, [tripId, safeGoBack, trip?.title, trip?.start_date]);
 
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
@@ -706,7 +715,7 @@ export default function ActiveTripScreen() {
 
 			{/* 上部オーバーレイ（戻るボタン + トリップ情報カード） */}
 			<SafeAreaView style={styles.overlay} pointerEvents="box-none">
-				<Pressable style={styles.backButton} onPress={() => router.back()}>
+				<Pressable style={styles.backButton} onPress={safeGoBack}>
 					<Ionicons name="arrow-back" size={24} color={Colors.black} />
 				</Pressable>
 
@@ -778,7 +787,7 @@ export default function ActiveTripScreen() {
 			<View style={styles.bottomActions}>
 				<Pressable
 					style={[styles.endButton, isFinishedTrip && styles.backOnlyButton]}
-					onPress={isFinishedTrip ? () => router.back() : handleEndTrip}
+					onPress={isFinishedTrip ? safeGoBack : handleEndTrip}
 				>
 					<Text style={styles.endButtonText}>
 						{isFinishedTrip ? "戻る" : "終了"}
