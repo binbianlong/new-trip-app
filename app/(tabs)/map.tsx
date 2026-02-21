@@ -863,6 +863,30 @@ export default function MapScreen() {
 					})}
 			</MapView>
 
+			{/* スナップショット用タイトルバナー（キャプチャ中のみ表示） */}
+			{isTripSnapshotMode && selectedTrip && (
+				<View style={[styles.snapshotTitleBanner, { top: insets.top + 16 }]}>
+					<View
+						style={[
+							styles.snapshotTitleDot,
+							{
+								backgroundColor:
+									tripColorMap[selectedTrip.id] ?? Colors.primary,
+							},
+						]}
+					/>
+					<Text style={styles.snapshotTitleText} numberOfLines={1}>
+						{selectedTrip.title ?? "無題"}
+					</Text>
+					{selectedTrip.start_date && (
+						<Text style={styles.snapshotTitleDate}>
+							{selectedTrip.start_date}
+							{selectedTrip.end_date ? ` 〜 ${selectedTrip.end_date}` : ""}
+						</Text>
+					)}
+				</View>
+			)}
+
 			{/* 上部オーバーレイ */}
 			{selectedTrip && !isTripSnapshotMode ? (
 				<View style={[styles.tripInfoOverlay, { top: insets.top + 12 }]}>
@@ -1075,6 +1099,39 @@ const styles = StyleSheet.create({
 	container: {
 		flex: 1,
 		backgroundColor: Colors.white,
+	},
+	snapshotTitleBanner: {
+		position: "absolute",
+		left: 20,
+		right: 20,
+		backgroundColor: "rgba(255,255,255,0.92)",
+		borderRadius: 14,
+		paddingVertical: 12,
+		paddingHorizontal: 16,
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.12,
+		shadowRadius: 6,
+		elevation: 4,
+	},
+	snapshotTitleDot: {
+		width: 10,
+		height: 10,
+		borderRadius: 5,
+	},
+	snapshotTitleText: {
+		fontSize: 16,
+		fontWeight: "700",
+		color: Colors.black,
+		flexShrink: 1,
+	},
+	snapshotTitleDate: {
+		fontSize: 12,
+		color: Colors.gray,
+		marginLeft: "auto",
 	},
 	loadingContainer: {
 		flex: 1,
