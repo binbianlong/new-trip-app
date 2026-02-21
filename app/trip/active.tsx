@@ -4,6 +4,7 @@ import DateTimePicker, {
 } from "@react-native-community/datetimepicker";
 import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -264,12 +265,33 @@ export default function ActiveTripScreen() {
 		[tripId, fetchTripData, trip?.title],
 	);
 
+	const resolveCurrentCoordinate =
+		useCallback(async (): Promise<LatLng | null> => {
+			try {
+				const locationPerm = await Location.requestForegroundPermissionsAsync();
+				if (!locationPerm.granted) {
+					return null;
+				}
+
+				const location = await Location.getCurrentPositionAsync({
+					accuracy: Location.Accuracy.High,
+				});
+				return {
+					latitude: location.coords.latitude,
+					longitude: location.coords.longitude,
+				};
+			} catch (error) {
+				console.warn("resolveCurrentCoordinate error:", error);
+				return null;
+			}
+		}, []);
+
 	const openPhotoMetaModal = useCallback(
-		(photo: PendingPhoto) => {
+		(photo: PendingPhoto, preferredCoordinate?: LatLng | null) => {
 			const latestPhotoWithCoords = [...photos]
 				.reverse()
 				.find((p) => p.lat != null && p.lng != null);
-			const initialCoordinate: LatLng = latestPhotoWithCoords
+			const fallbackCoordinate: LatLng = latestPhotoWithCoords
 				? {
 						latitude: latestPhotoWithCoords.lat as number,
 						longitude: latestPhotoWithCoords.lng as number,
@@ -278,6 +300,7 @@ export default function ActiveTripScreen() {
 						latitude: JAPAN_REGION.latitude,
 						longitude: JAPAN_REGION.longitude,
 					};
+			const initialCoordinate = preferredCoordinate ?? fallbackCoordinate;
 
 			setPendingPhoto(photo);
 			setSelectedCoordinate(initialCoordinate);
@@ -313,12 +336,16 @@ export default function ActiveTripScreen() {
 			if (result.canceled) return;
 			const picked = result.assets[0];
 			if (!picked) return;
+			const currentCoordinate = await resolveCurrentCoordinate();
 
-			openPhotoMetaModal({
-				uri: picked.uri,
-				mimeType: picked.mimeType ?? "image/jpeg",
-				fileExt: normalizePhotoExtension(picked.mimeType),
-			});
+			openPhotoMetaModal(
+				{
+					uri: picked.uri,
+					mimeType: picked.mimeType ?? "image/jpeg",
+					fileExt: normalizePhotoExtension(picked.mimeType),
+				},
+				currentCoordinate,
+			);
 		} catch (error) {
 			console.error("handleTakePhoto error:", error);
 			Alert.alert(
@@ -326,7 +353,7 @@ export default function ActiveTripScreen() {
 				"写真の撮影中にエラーが発生しました。もう一度お試しください。",
 			);
 		}
-	}, [openPhotoMetaModal]);
+	}, [openPhotoMetaModal, resolveCurrentCoordinate]);
 
 	const handlePickFromLibrary = useCallback(async () => {
 		try {
@@ -358,7 +385,7 @@ export default function ActiveTripScreen() {
 		}
 	}, [openPhotoMetaModal]);
 
-	const handleAddPhotoPress = useCallback(() => {
+	const _handleAddPhotoPress = useCallback(() => {
 		Alert.alert("写真を追加", "追加方法を選択してください", [
 			{ text: "キャンセル", style: "cancel" },
 			{ text: "カメラで撮影", onPress: () => void handleTakePhoto() },
@@ -368,6 +395,55 @@ export default function ActiveTripScreen() {
 			},
 		]);
 	}, [handleTakePhoto, handlePickFromLibrary]);
+
+	const handleTakePhotoQuick = useCallback(async () => {
+		try {
+			const cameraPerm = await ImagePicker.requestCameraPermissionsAsync();
+			if (!cameraPerm.granted) {
+				Alert.alert("権限エラー", "カメラの使用を許可してください");
+				return;
+			}
+
+			const locationPerm = await Location.requestForegroundPermissionsAsync();
+			if (!locationPerm.granted) {
+				Alert.alert("権限エラー", "位置情報の使用を許可してください");
+				return;
+			}
+
+			const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+			if (result.canceled) return;
+			const picked = result.assets[0];
+			if (!picked) return;
+
+			const location = await Location.getCurrentPositionAsync({
+				accuracy: Location.Accuracy.High,
+			});
+			const { latitude, longitude } = location.coords;
+
+			setIsSaving(true);
+			try {
+				await savePhoto({
+					photo: {
+						uri: picked.uri,
+						mimeType: picked.mimeType ?? "image/jpeg",
+						fileExt: normalizePhotoExtension(picked.mimeType),
+					},
+					lat: latitude,
+					lng: longitude,
+					createdAt: new Date().toISOString(),
+				});
+			} finally {
+				setIsSaving(false);
+			}
+		} catch (error) {
+			console.error("handleTakePhotoQuick error:", error);
+			Alert.alert(
+				"エラー",
+				"写真の撮影・保存中にエラーが発生しました。もう一度お試しください。",
+			);
+			setIsSaving(false);
+		}
+	}, [savePhoto]);
 
 	const openPhotoDatePicker = useCallback((mode: "date" | "time") => {
 		setPhotoDatePickerMode(mode);
@@ -727,17 +803,13 @@ export default function ActiveTripScreen() {
 
 				<Pressable
 					style={[styles.cameraButton, isSaving && styles.buttonDisabled]}
-					onPress={handleAddPhotoPress}
+					onPress={handleTakePhotoQuick}
 					disabled={isSaving}
 				>
 					{isSaving ? (
 						<ActivityIndicator size="small" color={Colors.black} />
 					) : (
-						<Ionicons
-							name="add-circle-outline"
-							size={36}
-							color={Colors.black}
-						/>
+						<Ionicons name="camera-outline" size={36} color={Colors.black} />
 					)}
 				</Pressable>
 			</View>
