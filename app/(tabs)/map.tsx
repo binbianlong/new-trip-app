@@ -84,6 +84,55 @@ export default function MapScreen() {
 		return map;
 	}, [trips]);
 
+	const resolveAvatarDisplayUrl = useCallback(async (raw: string | null) => {
+		if (!raw) return null;
+		const avatarBucket =
+			process.env.EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET ?? "photos";
+		if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+			const { data, error } = await supabase.storage
+				.from(avatarBucket)
+				.createSignedUrl(raw, 60 * 60);
+			if (!error && data?.signedUrl) return data.signedUrl;
+			if (error) {
+				console.warn("Header createSignedUrl failed:", {
+					bucket: avatarBucket,
+					path: raw,
+					message: error.message,
+				});
+			}
+			const { data: publicData } = supabase.storage
+				.from(avatarBucket)
+				.getPublicUrl(raw);
+			return publicData.publicUrl;
+		}
+		try {
+			const parsed = new URL(raw);
+			const match = parsed.pathname.match(
+				/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/,
+			);
+			if (!match) return raw;
+			const [, bucket, objectPathRaw] = match;
+			const objectPath = decodeURIComponent(objectPathRaw);
+			const { data, error } = await supabase.storage
+				.from(bucket)
+				.createSignedUrl(objectPath, 60 * 60);
+			if (!error && data?.signedUrl) return data.signedUrl;
+			if (error) {
+				console.warn("Header createSignedUrl from URL failed:", {
+					bucket,
+					path: objectPath,
+					message: error.message,
+				});
+			}
+			const { data: publicData } = supabase.storage
+				.from(bucket)
+				.getPublicUrl(objectPath);
+			return publicData.publicUrl;
+		} catch {
+			return raw;
+		}
+	}, []);
+
 	/** 旅行ごとの写真 */
 	const photosByTrip = useMemo(() => {
 		const map: Record<string, Photo[]> = {};
@@ -183,12 +232,27 @@ export default function MapScreen() {
 							deleted_at: null,
 						},
 				);
-				setSelectedMembers(resolvedUsers);
+				if (resolvedUsers) {
+					const resolvedData = await Promise.all(
+						resolvedUsers.map(async (user) => {
+							if (user.avatar_url) {
+								const resolvedUrl = await resolveAvatarDisplayUrl(
+									user.avatar_url,
+								);
+								return { ...user, avatar_url: resolvedUrl };
+							}
+							return user;
+						}),
+					);
+					setSelectedMembers(resolvedData);
+					console.log("アバターURL解決後の検索結果:", resolvedData);
+					return;
+				}
 			} else {
 				setSelectedMembers([]);
 			}
 		})();
-	}, [selectedTrip, selectedTripId]);
+	}, [selectedTrip, selectedTripId, resolveAvatarDisplayUrl]);
 
 	/** 写真を時系列順に並べて経路として使う */
 	const photoRouteByTrip = useMemo(() => {
