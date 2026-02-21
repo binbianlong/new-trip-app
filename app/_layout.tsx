@@ -1,7 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "../src/hooks/useAuth";
+import {
+	saveNotificationToHistory,
+	setupNotifications,
+} from "../src/lib/notifications";
 
 const PROFILE_SETUP_REQUIRED_KEY = "profile_setup_required";
 
@@ -51,6 +56,24 @@ function AuthGuard() {
 
 // ルートレイアウト (Stack)
 export default function RootLayout() {
+	const listenerRef = useRef<ReturnType<
+		typeof Notifications.addNotificationReceivedListener
+	> | null>(null);
+
+	useEffect(() => {
+		void setupNotifications();
+
+		listenerRef.current = Notifications.addNotificationReceivedListener(
+			(notification) => {
+				void saveNotificationToHistory(notification);
+			},
+		);
+
+		return () => {
+			listenerRef.current?.remove();
+		};
+	}, []);
+
 	return (
 		<>
 			<AuthGuard />
@@ -90,6 +113,14 @@ export default function RootLayout() {
 					options={{
 						headerShown: false,
 						animation: "slide_from_right",
+					}}
+				/>
+				<Stack.Screen
+					name="notifications"
+					options={{
+						headerShown: true,
+						title: "通知",
+						presentation: "modal",
 					}}
 				/>
 			</Stack>

@@ -1,10 +1,30 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs, usePathname, useRouter } from "expo-router";
+import { Tabs, useFocusEffect, usePathname, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors } from "../../src/constants/colors";
+import { getUnreadCount, registerPushToken } from "../../src/lib/notifications";
 import { supabase } from "../../src/lib/supabase";
 import type { User } from "../../src/types";
+
+function NotificationBell({
+	count,
+	onPress,
+}: {
+	count: number;
+	onPress: () => void;
+}) {
+	return (
+		<Pressable onPress={onPress} style={styles.bellButton}>
+			<Ionicons name="notifications-outline" size={24} color={Colors.black} />
+			{count > 0 && (
+				<View style={styles.badge}>
+					<Text style={styles.badgeText}>{count > 9 ? "9+" : count}</Text>
+				</View>
+			)}
+		</Pressable>
+	);
+}
 
 function HeaderAvatar({
 	profile,
@@ -39,6 +59,13 @@ export default function TabLayout() {
 	const router = useRouter();
 	const pathname = usePathname();
 	const [profile, setProfile] = useState<User | null>(null);
+	const [unreadBadge, setUnreadBadge] = useState(0);
+
+	useFocusEffect(
+		useCallback(() => {
+			void getUnreadCount().then(setUnreadBadge);
+		}, []),
+	);
 
 	const resolveAvatarDisplayUrl = useCallback(async (raw: string | null) => {
 		if (!raw) return null;
@@ -123,6 +150,7 @@ export default function TabLayout() {
 				null,
 			email: user.email ?? null,
 			avatar_url: fallbackAvatarUrl,
+			expo_push_token: null,
 			created_at: null,
 			updated_at: null,
 			deleted_at: null,
@@ -134,6 +162,10 @@ export default function TabLayout() {
 		fetchProfile();
 	}, [fetchProfile, pathname]);
 
+	useEffect(() => {
+		void registerPushToken();
+	}, []);
+
 	return (
 		<Tabs
 			screenOptions={{
@@ -143,10 +175,16 @@ export default function TabLayout() {
 				tabBarStyle: styles.tabBar,
 				tabBarLabelStyle: styles.tabBarLabel,
 				headerRight: () => (
-					<HeaderAvatar
-						profile={profile}
-						onPress={() => router.push("/profile")}
-					/>
+					<View style={styles.headerRightContainer}>
+						<NotificationBell
+							count={unreadBadge}
+							onPress={() => router.push("/notifications")}
+						/>
+						<HeaderAvatar
+							profile={profile}
+							onPress={() => router.push("/profile")}
+						/>
+					</View>
 				),
 			}}
 		>
@@ -209,5 +247,31 @@ const styles = StyleSheet.create({
 		fontSize: 14,
 		fontWeight: "700",
 		color: Colors.white,
+	},
+	headerRightContainer: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+	},
+	bellButton: {
+		padding: 6,
+		position: "relative",
+	},
+	badge: {
+		position: "absolute",
+		top: 2,
+		right: 2,
+		backgroundColor: Colors.danger,
+		borderRadius: 8,
+		minWidth: 16,
+		height: 16,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingHorizontal: 3,
+	},
+	badgeText: {
+		color: Colors.white,
+		fontSize: 10,
+		fontWeight: "700",
 	},
 });

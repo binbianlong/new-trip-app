@@ -29,6 +29,10 @@ import {
 	View,
 } from "react-native";
 import { Colors } from "../../src/constants/colors";
+import {
+	notifyMemberInvited,
+	scheduleMorningGreetings,
+} from "../../src/lib/notifications";
 import { supabase } from "../../src/lib/supabase";
 import { ensureTripMembers } from "../../src/lib/tripMembers";
 import {
@@ -736,6 +740,10 @@ export default function TripDetailModal() {
 		updateTripStatus(trip.id, "started");
 		await fetchTrips();
 
+		if (trip.title) {
+			void scheduleMorningGreetings(trip.id, trip.title);
+		}
+
 		router.dismiss();
 		setTimeout(() => {
 			router.push({
@@ -846,6 +854,14 @@ export default function TripDetailModal() {
 
 			if (participantIdsToAdd.length > 0) {
 				await ensureTripMembers(trip.id, participantIdsToAdd);
+				const addedNames = editingParticipants
+					.filter((p) => participantIdsToAdd.includes(p.id))
+					.map((p) => p.profile_name ?? p.username ?? "ユーザー");
+				void notifyMemberInvited(
+					trip.title ?? "旅行",
+					participantIdsToAdd,
+					addedNames,
+				);
 			}
 
 			if (memberRowIdsToRemove.length > 0) {
