@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { supabase } from "../../../src/lib/supabase";
 import Auth from "../../components/Auth";
+import { SplashScreen } from "../../components/User/SplashScreen";
 
 export default function App() {
 	const [claims, setClaims] = useState<JwtPayload | null>(null);
@@ -32,7 +33,7 @@ export default function App() {
 		// 2. 5秒後にローディングを終了させるタイマー
 		const timer = setTimeout(() => {
 			setIsLoading(false);
-		}, 5000);
+		}, 3000);
 
 		const { data: authListener } = supabase.auth.onAuthStateChange(() => {
 			fetchData();
@@ -47,13 +48,7 @@ export default function App() {
 
 	// 3. ローディング中の画面（5秒間表示される）
 	if (isLoading) {
-		return (
-			<View style={styles.loadingContainer}>
-				<ActivityIndicator size="large" color="#0000ff" />
-				<Text style={styles.loadingText}>データを読み込み中...</Text>
-				<Text style={styles.subText}>5秒間お待ちください</Text>
-			</View>
-		);
+		return <SplashScreen />;
 	}
 
 	// 4. 5秒経過後の本来の画面
