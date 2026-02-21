@@ -1,7 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, useFocusEffect, usePathname, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+	Image,
+	Pressable,
+	type PressableProps,
+	StyleSheet,
+	Text,
+	View,
+	type ViewStyle,
+} from "react-native";
 import { Colors } from "../../src/constants/colors";
 import { getUnreadCount, registerPushToken } from "../../src/lib/notifications";
 import { supabase } from "../../src/lib/supabase";
@@ -50,6 +58,29 @@ function HeaderAvatar({
 					<Text style={styles.avatarInitial}>{initial || "?"}</Text>
 				</View>
 			)}
+		</Pressable>
+	);
+}
+
+function TabBarButton(props: PressableProps & { children: React.ReactNode }) {
+	const { children, accessibilityState, style, ...rest } = props;
+	const focused = accessibilityState?.selected ?? false;
+	const baseStyle = (typeof style === "function" ? undefined : style) as
+		| ViewStyle
+		| undefined;
+	return (
+		<Pressable
+			accessibilityState={accessibilityState}
+			style={[
+				baseStyle,
+				{
+					borderTopWidth: 2.5,
+					borderTopColor: focused ? "#4A7C59" : "transparent",
+				},
+			]}
+			{...rest}
+		>
+			{children}
 		</Pressable>
 	);
 }
@@ -174,6 +205,7 @@ export default function TabLayout() {
 				tabBarInactiveTintColor: Colors.tabBarInactive,
 				tabBarStyle: styles.tabBar,
 				tabBarLabelStyle: styles.tabBarLabel,
+				tabBarButton: (props) => <TabBarButton {...props} />,
 				headerRight: () => (
 					<View style={styles.headerRightContainer}>
 						<NotificationBell
@@ -215,7 +247,7 @@ const styles = StyleSheet.create({
 	tabBar: {
 		backgroundColor: Colors.white,
 		borderTopWidth: 1,
-		borderTopColor: Colors.grayLighter,
+		borderTopColor: "#C6FFCA",
 		height: 88,
 		paddingBottom: 28,
 		paddingTop: 8,
