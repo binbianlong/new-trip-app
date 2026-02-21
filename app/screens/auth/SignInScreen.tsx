@@ -46,12 +46,12 @@ export default function App() {
 		};
 	}, []);
 
-	// 3. ローディング中の画面（5秒間表示される）
+	// 3. ローディング中の画面（4秒間表示される）
 	if (isLoading) {
 		return <SplashScreen />;
 	}
 
-	// 4. 5秒経過後の本来の画面
+	// 4. 4秒経過後の本来の画面
 	return (
 		<View style={{ flex: 1, padding: 16 }}>
 			<Auth />
