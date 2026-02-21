@@ -1,12 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Controller, type SubmitHandler, useForm } from "react-hook-form";
 import {
+	ActivityIndicator,
 	Alert,
+	Animated,
+	Easing,
 	Image,
 	KeyboardAvoidingView,
+	Modal,
 	Platform,
 	Pressable,
 	ScrollView,
@@ -26,7 +30,7 @@ import {
 	subscribe,
 	updateTripStatus,
 } from "../../src/store/tripStore";
-import type { User } from "../../src/types";
+import type { Photo, User } from "../../src/types";
 import { ParticipantPickerModal } from "../components/ParticipantPickerModal";
 
 // 編集フォームの型定義
@@ -55,7 +59,17 @@ export default function TripDetailModal() {
 	}, [id]);
 
 	const isThisTripActive = trip.status === "started";
+	const isThisTripFinished = trip.status === "finished";
 	const isOtherTripActive = activeTripId != null && activeTripId !== trip.id;
+
+	const [tripPhotos, setTripPhotos] = useState<Photo[]>([]);
+	const [isPhotosLoading, setIsPhotosLoading] = useState(false);
+	const [highlightIndex, setHighlightIndex] = useState(0);
+	const [isHighlightModalVisible, setIsHighlightModalVisible] = useState(false);
+	const [highlightModalReady, setHighlightModalReady] = useState(false);
+	const modalProgress = useRef(new Animated.Value(0)).current;
+	const auraProgress = useRef(new Animated.Value(0)).current;
+	const highlightAnim = useRef(new Animated.Value(1)).current;
 
 	// この旅行の参加者ユーザーを Supabase から取得
 	const [participants, setParticipants] = useState<User[]>([]);
@@ -117,6 +131,156 @@ export default function TripDetailModal() {
 	useEffect(() => {
 		fetchParticipants();
 	}, [fetchParticipants]);
+
+	const fetchTripPhotos = useCallback(async () => {
+		if (!isThisTripFinished) {
+			setTripPhotos([]);
+			setHighlightIndex(0);
+			return;
+		}
+
+		setIsPhotosLoading(true);
+		try {
+			const { data, error } = await supabase
+				.from("photos")
+				.select("*")
+				.eq("trip_id", trip.id)
+				.order("created_at", { ascending: true });
+
+			if (error) {
+				console.error("Trip photos fetch error:", error);
+				setTripPhotos([]);
+				return;
+			}
+
+			setTripPhotos(data ?? []);
+			setHighlightIndex(0);
+		} catch (error) {
+			console.error("fetchTripPhotos error:", error);
+			setTripPhotos([]);
+		} finally {
+			setIsPhotosLoading(false);
+		}
+	}, [isThisTripFinished, trip.id]);
+
+	useEffect(() => {
+		fetchTripPhotos();
+	}, [fetchTripPhotos]);
+
+	useEffect(() => {
+		if (tripPhotos.length === 0) {
+			setHighlightIndex(0);
+			return;
+		}
+		if (highlightIndex >= tripPhotos.length) {
+			setHighlightIndex(0);
+		}
+	}, [highlightIndex, tripPhotos.length]);
+
+	const moveHighlight = useCallback(
+		(direction: -1 | 1) => {
+			setHighlightIndex((prev) => {
+				if (tripPhotos.length === 0) return 0;
+				return (prev + direction + tripPhotos.length) % tripPhotos.length;
+			});
+		},
+		[tripPhotos.length],
+	);
+
+	const currentHighlightPhoto = tripPhotos[highlightIndex] ?? null;
+	const currentHighlightKey = currentHighlightPhoto?.id ?? null;
+	const highlightModalOpacity = modalProgress.interpolate({
+		inputRange: [0, 1],
+		outputRange: [0, 1],
+	});
+	const highlightModalScale = modalProgress.interpolate({
+		inputRange: [0, 1],
+		outputRange: [0.86, 1],
+	});
+	const highlightModalTranslateY = modalProgress.interpolate({
+		inputRange: [0, 1],
+		outputRange: [38, 0],
+	});
+	const auraRotate = auraProgress.interpolate({
+		inputRange: [0, 1],
+		outputRange: ["0deg", "360deg"],
+	});
+	const auraDriftX = auraProgress.interpolate({
+		inputRange: [0, 0.5, 1],
+		outputRange: [-26, 22, -26],
+	});
+	const auraDriftY = auraProgress.interpolate({
+		inputRange: [0, 0.5, 1],
+		outputRange: [14, -20, 14],
+	});
+
+	useEffect(() => {
+		if (currentHighlightKey == null) return;
+
+		highlightAnim.setValue(0.88);
+		Animated.spring(highlightAnim, {
+			toValue: 1,
+			useNativeDriver: true,
+			friction: 8,
+			tension: 85,
+		}).start();
+	}, [currentHighlightKey, highlightAnim]);
+
+	useEffect(() => {
+		if (!isHighlightModalVisible) {
+			modalProgress.stopAnimation();
+			auraProgress.stopAnimation();
+			return;
+		}
+
+		modalProgress.setValue(0);
+		auraProgress.setValue(0);
+		setHighlightModalReady(true);
+
+		Animated.timing(modalProgress, {
+			toValue: 1,
+			duration: 420,
+			easing: Easing.out(Easing.cubic),
+			useNativeDriver: true,
+		}).start();
+
+		const loop = Animated.loop(
+			Animated.timing(auraProgress, {
+				toValue: 1,
+				duration: 5200,
+				easing: Easing.linear,
+				useNativeDriver: true,
+			}),
+		);
+		loop.start();
+
+		return () => loop.stop();
+	}, [auraProgress, isHighlightModalVisible, modalProgress]);
+
+	useEffect(() => {
+		if (!isThisTripFinished || isEditing) {
+			setIsHighlightModalVisible(false);
+			setHighlightModalReady(false);
+		}
+	}, [isEditing, isThisTripFinished]);
+
+	const openHighlightModal = useCallback(() => {
+		if (tripPhotos.length === 0 || isPhotosLoading) return;
+		setIsHighlightModalVisible(true);
+	}, [isPhotosLoading, tripPhotos.length]);
+
+	const closeHighlightModal = useCallback(() => {
+		Animated.timing(modalProgress, {
+			toValue: 0,
+			duration: 260,
+			easing: Easing.in(Easing.cubic),
+			useNativeDriver: true,
+		}).start(({ finished }) => {
+			if (!finished) return;
+			setIsHighlightModalVisible(false);
+			setHighlightModalReady(false);
+		});
+	}, [modalProgress]);
 
 	useEffect(() => {
 		if (!isEditing) {
@@ -582,6 +746,53 @@ export default function TripDetailModal() {
 						<Text style={styles.value}>{trip.memo || "なし"}</Text>
 					)}
 				</View>
+
+				{/* 完了済み旅行の写真ハイライト */}
+				{!isEditing && isThisTripFinished && (
+					<View style={styles.field}>
+						<View style={styles.highlightHeaderRow}>
+							<Text style={styles.label}>旅のハイライト</Text>
+							<Text style={styles.highlightCounter}>
+								{tripPhotos.length > 0
+									? `${highlightIndex + 1}/${tripPhotos.length}`
+									: "0/0"}
+							</Text>
+						</View>
+
+						{isPhotosLoading ? (
+							<View style={styles.highlightLoadingBox}>
+								<ActivityIndicator size="small" color={Colors.primary} />
+								<Text style={styles.highlightLoadingText}>
+									写真を読み込み中...
+								</Text>
+							</View>
+						) : tripPhotos.length > 0 ? (
+							<Pressable
+								style={styles.highlightLaunchButton}
+								onPress={openHighlightModal}
+							>
+								<View style={styles.highlightLaunchLeft}>
+									<Ionicons name="sparkles" size={18} color={Colors.white} />
+									<Text style={styles.highlightLaunchTitle}>
+										全画面ハイライトを見る
+									</Text>
+								</View>
+								<Ionicons name="expand" size={20} color={Colors.white} />
+							</Pressable>
+						) : (
+							<View style={styles.highlightEmptyBox}>
+								<Ionicons
+									name="camera-outline"
+									size={20}
+									color={Colors.grayLight}
+								/>
+								<Text style={styles.highlightEmptyText}>
+									この旅行の写真はまだありません
+								</Text>
+							</View>
+						)}
+					</View>
+				)}
 			</ScrollView>
 
 			{/* フッター */}
@@ -612,6 +823,16 @@ export default function TripDetailModal() {
 						/>
 						<Text style={styles.startButtonText}>旅行中画面を開く</Text>
 					</Pressable>
+				) : isThisTripFinished ? (
+					<View style={styles.finishedButton}>
+						<Ionicons
+							name="flag-outline"
+							size={20}
+							color={Colors.white}
+							style={styles.startIcon}
+						/>
+						<Text style={styles.startButtonText}>この旅行は完了済みです</Text>
+					</View>
 				) : isOtherTripActive ? (
 					<View style={styles.lockedButton}>
 						<Ionicons
@@ -634,6 +855,200 @@ export default function TripDetailModal() {
 					</Pressable>
 				)}
 			</View>
+
+			<Modal
+				visible={isHighlightModalVisible || highlightModalReady}
+				transparent
+				animationType="none"
+				onRequestClose={closeHighlightModal}
+			>
+				<View style={styles.highlightModalOverlay}>
+					<Animated.View
+						pointerEvents="none"
+						style={[
+							styles.highlightAuraPrimary,
+							{
+								opacity: highlightModalOpacity,
+								transform: [
+									{ translateX: auraDriftX },
+									{ translateY: auraDriftY },
+									{ rotate: auraRotate },
+								],
+							},
+						]}
+					/>
+					<Animated.View
+						pointerEvents="none"
+						style={[
+							styles.highlightAuraSecondary,
+							{
+								opacity: highlightModalOpacity.interpolate({
+									inputRange: [0, 1],
+									outputRange: [0, 0.68],
+								}),
+								transform: [
+									{
+										rotate: auraProgress.interpolate({
+											inputRange: [0, 1],
+											outputRange: ["360deg", "0deg"],
+										}),
+									},
+								],
+							},
+						]}
+					/>
+
+					<Animated.View
+						style={[
+							styles.highlightModalBody,
+							{
+								opacity: highlightModalOpacity,
+								transform: [
+									{ scale: highlightModalScale },
+									{ translateY: highlightModalTranslateY },
+								],
+							},
+						]}
+					>
+						<View style={styles.highlightModalHeader}>
+							<Text style={styles.highlightModalTitle}>TRIP HIGHLIGHTS</Text>
+							<Pressable
+								onPress={closeHighlightModal}
+								style={styles.highlightModalClose}
+							>
+								<Ionicons name="close" size={20} color={Colors.white} />
+							</Pressable>
+						</View>
+
+						{tripPhotos.length > 0 ? (
+							<>
+								<View style={styles.highlightStageWrap}>
+									<Pressable
+										onPress={() => moveHighlight(-1)}
+										style={styles.highlightStageNavLeft}
+										hitSlop={10}
+									>
+										<Ionicons
+											name="chevron-back"
+											size={28}
+											color={Colors.white}
+										/>
+									</Pressable>
+									<Animated.View
+										style={[
+											styles.highlightStageCard,
+											{
+												opacity: highlightAnim,
+												transform: [
+													{ perspective: 920 },
+													{
+														rotateY: highlightAnim.interpolate({
+															inputRange: [0.88, 1],
+															outputRange: ["14deg", "0deg"],
+														}),
+													},
+													{ scale: highlightAnim },
+												],
+											},
+										]}
+									>
+										{currentHighlightPhoto?.image_url ? (
+											<Image
+												source={{ uri: currentHighlightPhoto.image_url }}
+												style={styles.highlightStageImage}
+											/>
+										) : (
+											<View style={styles.highlightStagePlaceholder}>
+												<Ionicons
+													name="image-outline"
+													size={42}
+													color={Colors.grayLight}
+												/>
+											</View>
+										)}
+									</Animated.View>
+									<Pressable
+										onPress={() => moveHighlight(1)}
+										style={styles.highlightStageNavRight}
+										hitSlop={10}
+									>
+										<Ionicons
+											name="chevron-forward"
+											size={28}
+											color={Colors.white}
+										/>
+									</Pressable>
+								</View>
+
+								<View style={styles.highlightMetaRow}>
+									<Text style={styles.highlightMetaCount}>
+										{highlightIndex + 1} / {tripPhotos.length}
+									</Text>
+									{currentHighlightPhoto?.created_at && (
+										<Text style={styles.highlightMetaDate}>
+											{new Date(
+												currentHighlightPhoto.created_at,
+											).toLocaleString("ja-JP", {
+												month: "short",
+												day: "numeric",
+												hour: "2-digit",
+												minute: "2-digit",
+											})}
+										</Text>
+									)}
+								</View>
+
+								<ScrollView
+									horizontal
+									showsHorizontalScrollIndicator={false}
+									contentContainerStyle={styles.highlightThumbList}
+								>
+									{tripPhotos.map((photo, index) => {
+										const isActive = index === highlightIndex;
+										return (
+											<Pressable
+												key={photo.id}
+												onPress={() => setHighlightIndex(index)}
+												style={[
+													styles.highlightThumbButton,
+													isActive && styles.highlightThumbButtonActive,
+												]}
+											>
+												{photo.image_url ? (
+													<Image
+														source={{ uri: photo.image_url }}
+														style={styles.highlightThumbImage}
+													/>
+												) : (
+													<View style={styles.highlightThumbFallback}>
+														<Ionicons
+															name="camera-outline"
+															size={14}
+															color={Colors.gray}
+														/>
+													</View>
+												)}
+											</Pressable>
+										);
+									})}
+								</ScrollView>
+							</>
+						) : (
+							<View style={styles.highlightModalEmpty}>
+								<Ionicons
+									name="camera-outline"
+									size={28}
+									color={Colors.grayLight}
+								/>
+								<Text style={styles.highlightModalEmptyText}>
+									表示できる写真がありません
+								</Text>
+							</View>
+						)}
+					</Animated.View>
+				</View>
+			</Modal>
+
 			<ParticipantPickerModal
 				visible={participantModalVisible}
 				onClose={() => setParticipantModalVisible(false)}
@@ -835,6 +1250,210 @@ const styles = StyleSheet.create({
 		color: Colors.primary,
 		fontWeight: "600",
 	},
+	highlightHeaderRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	highlightCounter: {
+		fontSize: 12,
+		fontWeight: "700",
+		color: Colors.gray,
+	},
+	highlightLoadingBox: {
+		height: 180,
+		borderRadius: 18,
+		backgroundColor: Colors.grayLighter,
+		justifyContent: "center",
+		alignItems: "center",
+		gap: 10,
+	},
+	highlightLoadingText: {
+		fontSize: 13,
+		color: Colors.gray,
+	},
+	highlightLaunchButton: {
+		height: 62,
+		borderRadius: 14,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		paddingHorizontal: 16,
+		backgroundColor: "#182D48",
+		borderWidth: 1,
+		borderColor: "#2D4F80",
+	},
+	highlightLaunchLeft: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	highlightLaunchTitle: {
+		color: Colors.white,
+		fontSize: 15,
+		fontWeight: "700",
+		letterSpacing: 0.2,
+	},
+	highlightModalOverlay: {
+		flex: 1,
+		backgroundColor: "#060A16",
+		paddingHorizontal: 16,
+		paddingVertical: 36,
+		justifyContent: "center",
+	},
+	highlightAuraPrimary: {
+		position: "absolute",
+		width: 320,
+		height: 320,
+		borderRadius: 160,
+		backgroundColor: "rgba(46, 168, 255, 0.28)",
+		top: 40,
+		left: -80,
+	},
+	highlightAuraSecondary: {
+		position: "absolute",
+		width: 280,
+		height: 280,
+		borderRadius: 140,
+		backgroundColor: "rgba(255, 113, 184, 0.24)",
+		bottom: 70,
+		right: -60,
+	},
+	highlightModalBody: {
+		borderRadius: 24,
+		padding: 16,
+		backgroundColor: "rgba(13, 20, 36, 0.88)",
+		borderWidth: 1,
+		borderColor: "rgba(144, 186, 255, 0.35)",
+		shadowColor: "#000B24",
+		shadowOffset: { width: 0, height: 16 },
+		shadowOpacity: 0.46,
+		shadowRadius: 28,
+		elevation: 18,
+	},
+	highlightModalHeader: {
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		marginBottom: 12,
+	},
+	highlightModalTitle: {
+		fontSize: 15,
+		fontWeight: "800",
+		color: "#BFE1FF",
+		letterSpacing: 1.1,
+	},
+	highlightModalClose: {
+		width: 34,
+		height: 34,
+		borderRadius: 17,
+		backgroundColor: "rgba(255,255,255,0.16)",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	highlightStageWrap: {
+		height: 430,
+		justifyContent: "center",
+		alignItems: "center",
+	},
+	highlightStageNavLeft: {
+		position: "absolute",
+		left: 2,
+		top: "50%",
+		marginTop: -24,
+		zIndex: 2,
+	},
+	highlightStageNavRight: {
+		position: "absolute",
+		right: 2,
+		top: "50%",
+		marginTop: -24,
+		zIndex: 2,
+	},
+	highlightStageCard: {
+		width: "84%",
+		height: "100%",
+		borderRadius: 24,
+		overflow: "hidden",
+		backgroundColor: "#101829",
+		borderWidth: 1,
+		borderColor: "rgba(255,255,255,0.16)",
+	},
+	highlightStageImage: {
+		width: "100%",
+		height: "100%",
+	},
+	highlightStagePlaceholder: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#151D2E",
+	},
+	highlightMetaRow: {
+		marginTop: 12,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	highlightMetaCount: {
+		fontSize: 15,
+		fontWeight: "700",
+		color: Colors.white,
+	},
+	highlightMetaDate: {
+		fontSize: 13,
+		color: "#B6C4DA",
+	},
+	highlightThumbList: {
+		gap: 8,
+		paddingTop: 14,
+		paddingBottom: 4,
+	},
+	highlightThumbButton: {
+		width: 56,
+		height: 56,
+		borderRadius: 12,
+		overflow: "hidden",
+		borderWidth: 2,
+		borderColor: "transparent",
+		backgroundColor: Colors.grayLighter,
+	},
+	highlightThumbButtonActive: {
+		borderColor: Colors.primary,
+	},
+	highlightThumbImage: {
+		width: "100%",
+		height: "100%",
+	},
+	highlightThumbFallback: {
+		flex: 1,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#192133",
+	},
+	highlightEmptyBox: {
+		borderWidth: 1,
+		borderStyle: "dashed",
+		borderColor: Colors.grayLight,
+		borderRadius: 14,
+		paddingVertical: 18,
+		alignItems: "center",
+		gap: 8,
+	},
+	highlightEmptyText: {
+		fontSize: 13,
+		color: Colors.gray,
+	},
+	highlightModalEmpty: {
+		height: 320,
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 8,
+	},
+	highlightModalEmptyText: {
+		fontSize: 14,
+		color: "#AFC4DF",
+	},
 	footer: {
 		padding: 20,
 		paddingBottom: 36,
@@ -868,6 +1487,14 @@ const styles = StyleSheet.create({
 	},
 	lockedButton: {
 		backgroundColor: Colors.grayLight,
+		borderRadius: 12,
+		paddingVertical: 16,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	finishedButton: {
+		backgroundColor: "#5C6B73",
 		borderRadius: 12,
 		paddingVertical: 16,
 		flexDirection: "row",
