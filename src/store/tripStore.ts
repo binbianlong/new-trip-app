@@ -73,10 +73,30 @@ export async function fetchTrips(): Promise<void> {
 		memberTrips = data ?? [];
 	}
 
-	trips = [...(ownedTrips ?? []), ...memberTrips].sort(
-		(a, b) =>
-			new Date(b.created_at ?? "").getTime() -
-			new Date(a.created_at ?? "").getTime(),
-	);
+	const STATUS_ORDER: Record<string, number> = {
+		started: 0,
+		planned: 1,
+		finished: 2,
+	};
+
+	trips = [...(ownedTrips ?? []), ...memberTrips].sort((a, b) => {
+		const aOrder = STATUS_ORDER[a.status ?? ""] ?? 3;
+		const bOrder = STATUS_ORDER[b.status ?? ""] ?? 3;
+		if (aOrder !== bOrder) return aOrder - bOrder;
+
+		if (a.status === "planned") {
+			const aDate = new Date(a.start_date ?? "9999-12-31").getTime();
+			const bDate = new Date(b.start_date ?? "9999-12-31").getTime();
+			return aDate - bDate;
+		}
+
+		if (a.status === "finished") {
+			const aDate = new Date(a.start_date ?? "").getTime();
+			const bDate = new Date(b.start_date ?? "").getTime();
+			return bDate - aDate;
+		}
+
+		return 0;
+	});
 	notify();
 }
