@@ -21,6 +21,7 @@ import {
 	Platform,
 	Pressable,
 	ScrollView,
+	Share,
 	StyleSheet,
 	Text,
 	TextInput,
@@ -63,6 +64,7 @@ type ItunesSearchResponse = {
 
 const ITUNES_SEARCH_FUNCTION_NAME =
 	process.env.EXPO_PUBLIC_ITUNES_SEARCH_FUNCTION_NAME ?? "itunes-search";
+const MAX_SHARE_PHOTO_LINKS = 8;
 
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
@@ -213,6 +215,7 @@ export default function TripDetailModal() {
 	const [themeResults, setThemeResults] = useState<ItunesSearchTrack[]>([]);
 	const [isThemeSearching, setIsThemeSearching] = useState(false);
 	const [isThemeSaving, setIsThemeSaving] = useState(false);
+	const [isSharingTrip, setIsSharingTrip] = useState(false);
 	const [isHighlightMusicLoading, setIsHighlightMusicLoading] = useState(false);
 	const [isHighlightMusicPlaying, setIsHighlightMusicPlaying] = useState(false);
 	const [highlightMusicError, setHighlightMusicError] = useState<string | null>(
@@ -549,6 +552,90 @@ export default function TripDetailModal() {
 		pauseHighlightThemeMusic,
 		playHighlightThemeMusic,
 	]);
+
+	const handleShareTripMemories = useCallback(async () => {
+		if (isSharingTrip) return;
+		if (!isThisTripFinished) {
+			Alert.alert("共有不可", "完了した旅行のみ共有できます");
+			return;
+		}
+
+		const shareablePhotoUrls = tripPhotos
+			.map((photo) => photo.image_url?.trim() ?? "")
+			.filter((url) => url.length > 0);
+		if (shareablePhotoUrls.length === 0) {
+			Alert.alert(
+				"写真がありません",
+				"共有するには、この旅行に1枚以上の写真を追加してください",
+			);
+			return;
+		}
+
+		const hasThemeMusic =
+			typeof trip.theme_music_title === "string" ||
+			typeof trip.theme_music_preview_url === "string" ||
+			typeof trip.theme_music_track_view_url === "string";
+		if (!hasThemeMusic) {
+			Alert.alert(
+				"テーマ音楽が未設定です",
+				"共有するにはテーマ音楽を設定してください",
+			);
+			return;
+		}
+
+		const tripTitle = trip.title?.trim() || "旅行の思い出";
+		const themeTrackUrl =
+			trip.theme_music_track_view_url ?? trip.theme_music_preview_url;
+		const lines: string[] = [
+			`${tripTitle} を共有します`,
+			"",
+			`開始日: ${trip.start_date ?? "未設定"}`,
+		];
+
+		const memoText = trip.memo?.trim();
+		if (memoText) {
+			lines.push(`メモ: ${memoText}`);
+		}
+
+		lines.push("");
+		lines.push(
+			`テーマ音楽: ${trip.theme_music_title ?? "未設定"}${
+				trip.theme_music_artist ? ` / ${trip.theme_music_artist}` : ""
+			}`,
+		);
+		if (themeTrackUrl) {
+			lines.push(`テーマ音楽リンク: ${themeTrackUrl}`);
+		}
+
+		lines.push("");
+		lines.push(`写真リンク (${shareablePhotoUrls.length}枚):`);
+		for (const [index, photoUrl] of shareablePhotoUrls
+			.slice(0, MAX_SHARE_PHOTO_LINKS)
+			.entries()) {
+			lines.push(`${index + 1}. ${photoUrl}`);
+		}
+		if (shareablePhotoUrls.length > MAX_SHARE_PHOTO_LINKS) {
+			lines.push(
+				`...ほか ${shareablePhotoUrls.length - MAX_SHARE_PHOTO_LINKS} 枚`,
+			);
+		}
+
+		setIsSharingTrip(true);
+		try {
+			await Share.share({
+				title: `${tripTitle}の共有`,
+				message: lines.join("\n"),
+			});
+		} catch (error) {
+			console.error("handleShareTripMemories error:", error);
+			Alert.alert(
+				"共有エラー",
+				`共有に失敗しました\n${getErrorMessage(error)}`,
+			);
+		} finally {
+			setIsSharingTrip(false);
+		}
+	}, [isSharingTrip, isThisTripFinished, trip, tripPhotos]);
 
 	useEffect(() => {
 		if (!isHighlightModalVisible) {
@@ -1372,6 +1459,35 @@ export default function TripDetailModal() {
 								</Text>
 							</Pressable>
 						)}
+					</View>
+				)}
+
+				{!isEditing && isThisTripFinished && (
+					<View style={styles.bottomShareWrap}>
+						<Pressable
+							style={[
+								styles.bottomShareButton,
+								(isSharingTrip || isPhotosLoading) &&
+									styles.themeButtonDisabled,
+							]}
+							onPress={() => {
+								void handleShareTripMemories();
+							}}
+							disabled={isSharingTrip || isPhotosLoading}
+						>
+							{isSharingTrip ? (
+								<ActivityIndicator size="small" color={Colors.primary} />
+							) : (
+								<Ionicons
+									name="share-social-outline"
+									size={18}
+									color={Colors.primary}
+								/>
+							)}
+							<Text style={styles.bottomShareButtonText}>
+								{isSharingTrip ? "共有中..." : "写真とテーマ音楽を友達に共有"}
+							</Text>
+						</Pressable>
 					</View>
 				)}
 			</ScrollView>
@@ -2617,6 +2733,25 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "center",
+	},
+	bottomShareWrap: {
+		marginBottom: 8,
+	},
+	bottomShareButton: {
+		height: 48,
+		borderRadius: 12,
+		borderWidth: 1,
+		borderColor: Colors.primary,
+		backgroundColor: Colors.white,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+		gap: 8,
+	},
+	bottomShareButtonText: {
+		fontSize: 14,
+		fontWeight: "700",
+		color: Colors.primary,
 	},
 	startIcon: {
 		marginRight: 8,
