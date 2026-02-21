@@ -33,7 +33,7 @@ export default function App() {
 		// 2. 5秒後にローディングを終了させるタイマー
 		const timer = setTimeout(() => {
 			setIsLoading(false);
-		}, 3000);
+		}, 4000);
 
 		const { data: authListener } = supabase.auth.onAuthStateChange(() => {
 			fetchData();
