@@ -4,6 +4,7 @@ import DateTimePicker, {
 } from "@react-native-community/datetimepicker";
 import { File as ExpoFile } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -89,6 +90,14 @@ export default function ActiveTripScreen() {
 	const scrollX = useRef(new Animated.Value(0)).current;
 	const isFinishedTrip = trip?.status === "finished";
 
+	const safeGoBack = useCallback(() => {
+		if (router.canGoBack()) {
+			router.back();
+		} else {
+			router.replace("/");
+		}
+	}, [router]);
+
 	// --- データ取得（Supabase） ---
 	const fetchTripData = useCallback(async () => {
 		if (!tripId) return;
@@ -171,8 +180,9 @@ export default function ActiveTripScreen() {
 	}, [tripId]);
 
 	useEffect(() => {
+		if (!tripId) return;
 		fetchTripData();
-	}, [fetchTripData]);
+	}, [tripId, fetchTripData]);
 
 	// --- データ保存 ---
 	const savePhoto = useCallback(
@@ -264,6 +274,62 @@ export default function ActiveTripScreen() {
 		[tripId, fetchTripData, trip?.title],
 	);
 
+	const handleTakePhoto = useCallback(async () => {
+		try {
+			const [cameraPerm, locationPerm] = await Promise.all([
+				ImagePicker.requestCameraPermissionsAsync(),
+				Location.requestForegroundPermissionsAsync(),
+			]);
+
+			if (!cameraPerm.granted) {
+				Alert.alert("権限エラー", "カメラの使用を許可してください");
+				return;
+			}
+
+			const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+			if (result.canceled) return;
+			const picked = result.assets[0];
+			if (!picked) return;
+
+			let lat = JAPAN_REGION.latitude;
+			let lng = JAPAN_REGION.longitude;
+
+			if (locationPerm.granted) {
+				try {
+					const loc = await Location.getCurrentPositionAsync({
+						accuracy: Location.Accuracy.Balanced,
+					});
+					lat = loc.coords.latitude;
+					lng = loc.coords.longitude;
+				} catch {
+					console.warn("Failed to get current location, using default");
+				}
+			}
+
+			setIsSaving(true);
+			const photo: PendingPhoto = {
+				uri: picked.uri,
+				mimeType: picked.mimeType ?? "image/jpeg",
+				fileExt: normalizePhotoExtension(picked.mimeType),
+			};
+
+			await savePhoto({
+				photo,
+				lat,
+				lng,
+				createdAt: new Date().toISOString(),
+			});
+		} catch (error) {
+			console.error("handleTakePhoto error:", error);
+			Alert.alert(
+				"エラー",
+				"写真の撮影中にエラーが発生しました。もう一度お試しください。",
+			);
+		} finally {
+			setIsSaving(false);
+		}
+	}, [savePhoto]);
+
 	const openPhotoMetaModal = useCallback(
 		(photo: PendingPhoto) => {
 			const latestPhotoWithCoords = [...photos]
@@ -301,7 +367,7 @@ export default function ActiveTripScreen() {
 		setIsPhotoDatePickerVisible(false);
 	}, []);
 
-	const handleTakePhoto = useCallback(async () => {
+	const handleTakePhotoForFinished = useCallback(async () => {
 		try {
 			const cameraPerm = await ImagePicker.requestCameraPermissionsAsync();
 			if (!cameraPerm.granted) {
@@ -320,7 +386,7 @@ export default function ActiveTripScreen() {
 				fileExt: normalizePhotoExtension(picked.mimeType),
 			});
 		} catch (error) {
-			console.error("handleTakePhoto error:", error);
+			console.error("handleTakePhotoForFinished error:", error);
 			Alert.alert(
 				"エラー",
 				"写真の撮影中にエラーが発生しました。もう一度お試しください。",
@@ -358,16 +424,19 @@ export default function ActiveTripScreen() {
 		}
 	}, [openPhotoMetaModal]);
 
-	const handleAddPhotoPress = useCallback(() => {
+	const handleAddPhotoForFinished = useCallback(() => {
 		Alert.alert("写真を追加", "追加方法を選択してください", [
 			{ text: "キャンセル", style: "cancel" },
-			{ text: "カメラで撮影", onPress: () => void handleTakePhoto() },
+			{
+				text: "カメラで撮影",
+				onPress: () => void handleTakePhotoForFinished(),
+			},
 			{
 				text: "ライブラリから選択",
 				onPress: () => void handlePickFromLibrary(),
 			},
 		]);
-	}, [handleTakePhoto, handlePickFromLibrary]);
+	}, [handleTakePhotoForFinished, handlePickFromLibrary]);
 
 	const openPhotoDatePicker = useCallback((mode: "date" | "time") => {
 		setPhotoDatePickerMode(mode);
@@ -476,11 +545,11 @@ export default function ActiveTripScreen() {
 						}
 					}
 					await fetchTrips();
-					router.back();
+					safeGoBack();
 				},
 			},
 		]);
-	}, [tripId, router, trip?.title, trip?.start_date]);
+	}, [tripId, safeGoBack, trip?.title, trip?.start_date]);
 
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
@@ -646,7 +715,7 @@ export default function ActiveTripScreen() {
 
 			{/* 上部オーバーレイ（戻るボタン + トリップ情報カード） */}
 			<SafeAreaView style={styles.overlay} pointerEvents="box-none">
-				<Pressable style={styles.backButton} onPress={() => router.back()}>
+				<Pressable style={styles.backButton} onPress={safeGoBack}>
 					<Ionicons name="arrow-back" size={24} color={Colors.black} />
 				</Pressable>
 
@@ -718,7 +787,7 @@ export default function ActiveTripScreen() {
 			<View style={styles.bottomActions}>
 				<Pressable
 					style={[styles.endButton, isFinishedTrip && styles.backOnlyButton]}
-					onPress={isFinishedTrip ? () => router.back() : handleEndTrip}
+					onPress={isFinishedTrip ? safeGoBack : handleEndTrip}
 				>
 					<Text style={styles.endButtonText}>
 						{isFinishedTrip ? "戻る" : "終了"}
@@ -727,14 +796,18 @@ export default function ActiveTripScreen() {
 
 				<Pressable
 					style={[styles.cameraButton, isSaving && styles.buttonDisabled]}
-					onPress={handleAddPhotoPress}
+					onPress={
+						isFinishedTrip
+							? handleAddPhotoForFinished
+							: () => void handleTakePhoto()
+					}
 					disabled={isSaving}
 				>
 					{isSaving ? (
 						<ActivityIndicator size="small" color={Colors.black} />
 					) : (
 						<Ionicons
-							name="add-circle-outline"
+							name={isFinishedTrip ? "add-circle-outline" : "camera"}
 							size={36}
 							color={Colors.black}
 						/>
