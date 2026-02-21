@@ -1,32 +1,34 @@
 // app/components/User/Splash_screen.tsx
+
+import * as Font from "expo-font";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 export const SplashScreen = () => {
 	const [dots, setDots] = useState("");
 	const [pawsCount, setPawsCount] = useState(0);
+	const [fontLoaded, setFontLoaded] = useState(false);
 
 	useEffect(() => {
-		// --- ドット用タイマー (300ms) ---
+		const loadFont = async () => {
+			try {
+				await Font.loadAsync({
+					keifont: require("../../../assets/fonts/keifont.ttf"),
+				});
+			} catch (e) {
+				console.warn("Font loading failed", e);
+			} finally {
+				setFontLoaded(true);
+			}
+		};
+		loadFont();
+
 		const dotsInterval = setInterval(() => {
-			setDots((prev) => {
-				if (prev === "...") {
-					return "";
-				} else {
-					return `${prev}.`;
-				}
-			});
+			setDots((prev) => (prev === "..." ? "" : `${prev}.`));
 		}, 300);
 
-		// --- 足跡用タイマー (700ms) ---
 		const pawsInterval = setInterval(() => {
-			setPawsCount((prev) => {
-				if (prev >= 5) {
-					return 0;
-				} else {
-					return prev + 1;
-				}
-			});
+			setPawsCount((prev) => (prev >= 5 ? 0 : prev + 1));
 		}, 700);
 
 		return () => {
@@ -35,9 +37,11 @@ export const SplashScreen = () => {
 		};
 	}, []);
 
+	if (!fontLoaded) return null;
+
 	return (
 		<View style={styles.loadingContainer}>
-			{/* --- 肉球の配置セクション (位置・サイズ固定) --- */}
+			{/* 肉球セクション (位置固定) */}
 			{pawsCount >= 1 && (
 				<Text
 					style={[
@@ -113,18 +117,17 @@ export const SplashScreen = () => {
 					🐾
 				</Text>
 			)}
-			{/* ---------------------------- */}
 
 			<View style={styles.centerContent}>
 				<Text style={styles.brandName}>あしあと</Text>
 
 				<View style={styles.loadingWrapper}>
-					{/* 中心を保つための透明なダミー。ドットと同じ幅（30px）にする */}
+					{/* 修正ポイント：左側の空白を狭くした */}
 					<View style={styles.dummySpace} />
 
 					<Text style={styles.loadingText}>ロード中</Text>
 
-					{/* ドット本体。ここが 30px の固定幅を持つので、ドットが増えても全体が揺れません */}
+					{/* 修正ポイント：ドットの開始位置とコンテナ幅を狭くした */}
 					<View style={styles.dotsContainer}>
 						<Text style={styles.loadingText}>{dots}</Text>
 					</View>
@@ -146,8 +149,8 @@ const styles = StyleSheet.create({
 		zIndex: 1,
 	},
 	brandName: {
-		fontSize: 54,
-		fontWeight: "bold",
+		fontFamily: "keifont",
+		fontSize: 60,
 		color: "#000",
 		marginBottom: 10,
 	},
@@ -157,17 +160,20 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 	},
 	loadingText: {
-		fontSize: 20,
+		fontSize: 18,
 		fontWeight: "600",
 		color: "#333",
 		fontFamily: "System",
 	},
 	dummySpace: {
-		width: 30, // dotsContainerと同じ幅にする
+		// dotsContainerと同じ幅にして中央を維持
+		width: 25,
 	},
 	dotsContainer: {
-		width: 30, // ドット3つ分（...）が入るのに十分な幅を固定
+		// 幅を 50 → 25 に、paddingLeft を 10 → 2 に変更して文字に寄せた
+		width: 25,
 		justifyContent: "flex-start",
+		paddingLeft: 2,
 	},
 	paws: {
 		position: "absolute",
