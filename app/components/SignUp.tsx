@@ -30,7 +30,7 @@ export default function Auth() {
 		});
 
 		if (error) {
-			Alert.alert(error.message);
+			Alert.alert("エラー", error.message);
 			setLoading(false);
 			return;
 		}
@@ -39,25 +39,29 @@ export default function Auth() {
 		if (session) {
 			router.replace("/profile-setup");
 		} else {
-			Alert.alert("Please check your inbox for email verification!");
+			Alert.alert("確認", "メールボックスを確認してください。");
 		}
 		setLoading(false);
 	}
 
 	return (
 		<View style={styles.container}>
-			<View style={[styles.verticallySpaced, styles.mt20]}>
-				<Text style={styles.label}>Email</Text>
+			{/* メールアドレス入力 */}
+			<View style={styles.inputGroup}>
+				<Text style={styles.label}>メールアドレス</Text>
 				<TextInput
 					onChangeText={(text) => setEmail(text)}
 					value={email}
 					placeholder="email@address.com"
 					autoCapitalize="none"
 					style={styles.input}
+					placeholderTextColor="#999"
 				/>
 			</View>
-			<View style={styles.verticallySpaced}>
-				<Text style={styles.label}>Password</Text>
+
+			{/* パスワード入力 */}
+			<View style={styles.inputGroup}>
+				<Text style={styles.label}>パスワード</Text>
 				<TextInput
 					onChangeText={(text) => setPassword(text)}
 					value={password}
@@ -65,59 +69,68 @@ export default function Auth() {
 					placeholder="Password"
 					autoCapitalize="none"
 					style={styles.input}
+					placeholderTextColor="#999"
 				/>
 			</View>
-			<View style={styles.verticallySpaced}>
-				<TouchableOpacity
-					style={[styles.button, loading && styles.buttonDisabled]}
-					onPress={() => signUpWithEmail()}
-					disabled={loading}
-				>
-					<Text style={styles.buttonText}>Sign up</Text>
-				</TouchableOpacity>
-			</View>
+
+			{/* 新規登録ボタン */}
+			<TouchableOpacity
+				style={[styles.button, loading && styles.buttonDisabled]}
+				onPress={() => signUpWithEmail()}
+				disabled={loading}
+			>
+				<Text style={styles.buttonText}>
+					{loading ? "新規登録中..." : "新規登録"}
+				</Text>
+			</TouchableOpacity>
 		</View>
 	);
 }
 
 const styles = StyleSheet.create({
 	container: {
-		marginTop: 40,
-		padding: 12,
+		width: "100%",
+		paddingHorizontal: 20,
 	},
-	verticallySpaced: {
-		paddingTop: 4,
-		paddingBottom: 4,
-		alignSelf: "stretch",
-	},
-	mt20: {
-		marginTop: 20,
+	inputGroup: {
+		marginBottom: 16,
 	},
 	label: {
-		fontSize: 16,
-		fontWeight: "600",
-		color: "#86939e",
+		fontSize: 14,
+		fontWeight: "bold",
+		color: "#4A7C59", // 深い緑
 		marginBottom: 6,
 	},
 	input: {
 		borderWidth: 1,
-		borderColor: "#86939e",
-		borderRadius: 4,
+		borderColor: "#4A7C59", // 深い緑
+		borderRadius: 8,
 		padding: 12,
 		fontSize: 16,
+		backgroundColor: "#fff",
 	},
 	button: {
-		backgroundColor: "#2089dc",
-		borderRadius: 4,
-		padding: 12,
+		backgroundColor: "#C6FFCA", // 薄い緑
+		borderRadius: 8,
+		paddingVertical: 14,
 		alignItems: "center",
+		marginTop: 20,
+		borderWidth: 1,
+		borderColor: "#4A7C59",
+		// 軽いシャドウ（iOS用）
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		// 軽いシャドウ（Android用）
+		elevation: 2,
 	},
 	buttonDisabled: {
-		opacity: 0.5,
+		opacity: 0.6,
 	},
 	buttonText: {
-		color: "#fff",
-		fontSize: 16,
-		fontWeight: "600",
+		color: "#4A7C59", // 深い緑
+		fontSize: 18,
+		fontWeight: "bold",
 	},
 });

@@ -3,8 +3,8 @@ import type { JwtPayload } from "@supabase/supabase-js";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-	ActivityIndicator,
 	Pressable,
+	SafeAreaView,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -30,7 +30,7 @@ export default function App() {
 
 		fetchData();
 
-		// 2. 5秒後にローディングを終了させるタイマー
+		// 2. 4秒後にローディングを終了させるタイマー
 		const timer = setTimeout(() => {
 			setIsLoading(false);
 		}, 4000);
@@ -51,82 +51,98 @@ export default function App() {
 		return <SplashScreen />;
 	}
 
-	// 4. 4秒経過後の本来の画面
 	return (
-		<View style={{ flex: 1, padding: 16 }}>
-			<SignIn />
-			<Pressable onPress={() => router.push("/screens/auth/SignUpScreen")}>
-				<Text
-					style={{
-						fontSize: 16,
-						fontWeight: "bold",
-						marginTop: 16,
-						color: "#007AFF",
-					}}
-				>
-					新規登録の方はこちら
-				</Text>
-			</Pressable>
-			{claims && (
-				<View
-					style={{
-						marginTop: 16,
-						padding: 12,
-						backgroundColor: "#f0f0f0",
-						borderRadius: 8,
-					}}
-				>
-					<Text style={{ fontSize: 14 }} numberOfLines={2}>
-						{claims.sub}
-					</Text>
+		<SafeAreaView style={styles.safeArea}>
+			<ScrollView
+				contentContainerStyle={styles.scrollContent}
+				showsVerticalScrollIndicator={false}
+			>
+				{/* ロゴエリア */}
+				<View style={styles.logoArea}>
+					<Text style={styles.logoIcon}>🐾</Text>
+					<Text style={styles.logoText}>あしあと</Text>
 				</View>
-			)}
-			<ScrollView style={styles.container}>
-				<View style={styles.content}>
-					{claims && (
-						<View style={styles.claimsContainer}>
-							<Text style={styles.claimsText}>
-								{JSON.stringify(claims, null, 2)}
-							</Text>
-						</View>
-					)}
-				</View>
+
+				{/* ログインフォームコンポーネント */}
+				<SignIn />
+
+				{/* 新規登録への導線 */}
+				<Pressable
+					onPress={() => router.push("/screens/auth/SignUpScreen")}
+					style={({ pressed }) => [
+						styles.signUpLink,
+						pressed && { opacity: 0.6 },
+					]}
+				>
+					<Text style={styles.signUpText}>新規登録の方はこちら</Text>
+				</Pressable>
+
+				{/* デバッグ情報（必要なければここを削除してください） */}
+				{claims && (
+					<View style={styles.debugInfo}>
+						<Text style={styles.debugLabel}>ログイン中のID:</Text>
+						<Text style={styles.debugText}>{claims.sub}</Text>
+					</View>
+				)}
 			</ScrollView>
-		</View>
+		</SafeAreaView>
 	);
 }
 
 const styles = StyleSheet.create({
-	container: {
+	safeArea: {
 		flex: 1,
+		backgroundColor: "#FDFDFD", // ほぼ白の背景
 	},
-	content: {
-		padding: 16,
-	},
-	claimsContainer: {
-		marginTop: 16,
-		padding: 12,
-		backgroundColor: "#f5f5f5",
-		borderRadius: 8,
-	},
-	claimsText: {
-		fontSize: 12,
-		fontFamily: "monospace",
-	},
-	// 追加したスタイル
-	loadingContainer: {
-		flex: 1,
-		justifyContent: "center",
+	scrollContent: {
+		flexGrow: 1,
 		alignItems: "center",
-		backgroundColor: "#ffffff",
+		paddingTop: 60,
+		paddingBottom: 40,
 	},
-	loadingText: {
-		marginTop: 10,
-		fontSize: 18,
+	logoArea: {
+		alignItems: "center",
+		marginBottom: 50,
+	},
+	logoIcon: {
+		// フォントサイズ変更可能
+		fontSize: 120,
+		// 左右反転可能（scaleX: -1）、角度調整可能（0-360度、例: '45deg' で45度回転）
+		transform: [{ scaleX: -1 }, { rotate: "-25deg" }],
+	},
+	logoText: {
+		// フォントサイズ変更可能
+		fontSize: 32,
+		fontWeight: "900", // デザイン案に合わせて太め
+		color: "#000000", // 🐾の色に合わせて黒に統一
+		marginTop: 8,
+		letterSpacing: 4,
+		fontFamily: "Keifont",
+	},
+	signUpLink: {
+		marginTop: 30,
+		padding: 10,
+	},
+	signUpText: {
+		fontSize: 15,
+		fontWeight: "bold",
+		color: "#4A7C59",
+		textDecorationLine: "underline",
+	},
+	debugInfo: {
+		marginTop: 50,
+		padding: 16,
+		backgroundColor: "#F0F0F0",
+		borderRadius: 12,
+		width: "80%",
+	},
+	debugLabel: {
+		fontSize: 10,
+		color: "#666",
 		fontWeight: "bold",
 	},
-	subText: {
-		marginTop: 5,
-		color: "#888",
+	debugText: {
+		fontSize: 10,
+		color: "#666",
 	},
 });
