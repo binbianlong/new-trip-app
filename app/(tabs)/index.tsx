@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
 		shadowRadius: 8,
 		elevation: 3,
 		borderWidth: 1,
-		borderColor: Colors.grayLighter,
+		borderColor: Colors.primary,
 	},
 	cardActive: {
 		borderColor: "#FF9800",
