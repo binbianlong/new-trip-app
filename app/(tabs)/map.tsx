@@ -1,4 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import {
+	Audio,
+	type AVPlaybackStatus,
+	InterruptionModeAndroid,
+	InterruptionModeIOS,
+} from "expo-av";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -67,6 +73,12 @@ export default function MapScreen() {
 	const mapRef = useRef<MapView>(null);
 	const photoListRef = useRef<FlatList<Photo>>(null);
 	const scrollX = useRef(new Animated.Value(0)).current;
+	const tripThemeSoundRef = useRef<Audio.Sound | null>(null);
+	const tripThemeSourceRef = useRef<{
+		tripId: string;
+		previewUrl: string;
+	} | null>(null);
+	const tripThemePlayRequestIdRef = useRef(0);
 
 	const [trips, setTrips] = useState<Trip[]>([]);
 	const [photos, setPhotos] = useState<Photo[]>([]);
@@ -191,6 +203,21 @@ export default function MapScreen() {
 	/** 選択中の旅行のメンバー */
 	const [selectedMembers, setSelectedMembers] = useState<User[]>([]);
 
+	const unloadTripThemeSound = useCallback(async () => {
+		const sound = tripThemeSoundRef.current;
+		tripThemeSoundRef.current = null;
+		tripThemeSourceRef.current = null;
+		if (!sound) return;
+
+		try {
+			sound.setOnPlaybackStatusUpdate(null);
+			await sound.stopAsync();
+			await sound.unloadAsync();
+		} catch (error) {
+			console.error("unloadTripThemeSound error:", error);
+		}
+	}, []);
+
 	useEffect(() => {
 		if (!selectedTripId) {
 			setSelectedMembers([]);
@@ -253,6 +280,86 @@ export default function MapScreen() {
 			}
 		})();
 	}, [selectedTrip, selectedTripId, resolveAvatarDisplayUrl]);
+
+	useEffect(() => {
+		const previewUrl = selectedTrip?.theme_music_preview_url;
+		const currentTripId = selectedTrip?.id;
+		const requestId = ++tripThemePlayRequestIdRef.current;
+
+		if (!currentTripId || !previewUrl) {
+			void unloadTripThemeSound();
+			return;
+		}
+
+		void (async () => {
+			try {
+				const currentSource = tripThemeSourceRef.current;
+				if (
+					currentSource &&
+					currentSource.tripId === currentTripId &&
+					currentSource.previewUrl === previewUrl &&
+					tripThemeSoundRef.current
+				) {
+					await tripThemeSoundRef.current.replayAsync();
+					return;
+				}
+
+				await unloadTripThemeSound();
+				await Audio.setAudioModeAsync({
+					playsInSilentModeIOS: true,
+					staysActiveInBackground: false,
+					shouldDuckAndroid: true,
+					playThroughEarpieceAndroid: false,
+					interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+					interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+				});
+
+				const { sound } = await Audio.Sound.createAsync(
+					{ uri: previewUrl },
+					{
+						shouldPlay: true,
+						positionMillis: 0,
+						progressUpdateIntervalMillis: 300,
+					},
+					(status: AVPlaybackStatus) => {
+						if (!status.isLoaded) return;
+						if (status.didJustFinish) {
+							// 30秒プレビューの自然終了はそのままにする
+						}
+					},
+				);
+
+				if (requestId !== tripThemePlayRequestIdRef.current) {
+					await sound.unloadAsync();
+					return;
+				}
+
+				tripThemeSoundRef.current = sound;
+				tripThemeSourceRef.current = { tripId: currentTripId, previewUrl };
+			} catch (error) {
+				console.error("playTripThemeSound error:", error);
+				void unloadTripThemeSound();
+			}
+		})();
+	}, [
+		selectedTrip?.id,
+		selectedTrip?.theme_music_preview_url,
+		unloadTripThemeSound,
+	]);
+
+	useFocusEffect(
+		useCallback(() => {
+			return () => {
+				void unloadTripThemeSound();
+			};
+		}, [unloadTripThemeSound]),
+	);
+
+	useEffect(() => {
+		return () => {
+			void unloadTripThemeSound();
+		};
+	}, [unloadTripThemeSound]);
 
 	/** 写真を時系列順に並べて経路として使う */
 	const photoRouteByTrip = useMemo(() => {
