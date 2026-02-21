@@ -214,6 +214,40 @@ export default function TripDetailModal() {
 	};
 
 	const [isSaving, setIsSaving] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
+
+	const handleDelete = useCallback(() => {
+		Alert.alert("旅行計画を削除", "この旅行計画を削除しますか？", [
+			{ text: "キャンセル", style: "cancel" },
+			{
+				text: "削除する",
+				style: "destructive",
+				onPress: async () => {
+					setIsDeleting(true);
+					try {
+						const { error } = await supabase
+							.from("trips")
+							.update({ deleted_at: new Date().toISOString() })
+							.eq("id", trip.id);
+
+						if (error) {
+							console.error("Trip delete error:", error);
+							Alert.alert("エラー", `削除に失敗しました\n${error.message}`);
+							return;
+						}
+
+						await fetchTrips();
+						router.dismiss();
+					} catch (error) {
+						console.error("handleDelete error:", error);
+						Alert.alert("エラー", "削除中にエラーが発生しました");
+					} finally {
+						setIsDeleting(false);
+					}
+				},
+			},
+		]);
+	}, [trip.id, router]);
 
 	const onSave: SubmitHandler<TripFormData> = async (data) => {
 		setIsSaving(true);
@@ -254,34 +288,60 @@ export default function TripDetailModal() {
 
 			{/* ヘッダー */}
 			<View style={styles.header}>
-				{isEditing ? (
-					<Pressable
-						onPress={() => {
-							reset();
-							setIsEditing(false);
-						}}
-						style={styles.headerButton}
-					>
-						<Ionicons
-							name="close-circle-outline"
-							size={18}
-							color={Colors.gray}
-						/>
-						<Text
-							style={[styles.headerButtonText, styles.headerButtonTextCancel]}
+				<View style={styles.headerLeft}>
+					{isEditing ? (
+						<Pressable
+							onPress={() => {
+								reset();
+								setIsEditing(false);
+							}}
+							style={styles.headerButton}
 						>
-							キャンセル
-						</Text>
-					</Pressable>
-				) : (
-					<Pressable
-						onPress={() => setIsEditing(true)}
-						style={styles.headerButton}
-					>
-						<Ionicons name="pencil-outline" size={18} color={Colors.primary} />
-						<Text style={styles.headerButtonText}>編集</Text>
-					</Pressable>
-				)}
+							<Ionicons
+								name="close-circle-outline"
+								size={18}
+								color={Colors.gray}
+							/>
+							<Text
+								style={[styles.headerButtonText, styles.headerButtonTextCancel]}
+							>
+								キャンセル
+							</Text>
+						</Pressable>
+					) : (
+						<Pressable
+							onPress={() => setIsEditing(true)}
+							style={styles.headerButton}
+						>
+							<Ionicons
+								name="pencil-outline"
+								size={18}
+								color={Colors.primary}
+							/>
+							<Text style={styles.headerButtonText}>編集</Text>
+						</Pressable>
+					)}
+					{!isEditing && !isThisTripActive && (
+						<Pressable
+							style={[
+								styles.headerDeleteButton,
+								isDeleting && { opacity: 0.5 },
+							]}
+							onPress={handleDelete}
+							disabled={isDeleting}
+						>
+							<Ionicons
+								name="trash-outline"
+								size={16}
+								color={Colors.danger}
+								style={styles.headerDeleteIcon}
+							/>
+							<Text style={styles.headerDeleteText}>
+								{isDeleting ? "削除中..." : "削除"}
+							</Text>
+						</Pressable>
+					)}
+				</View>
 				{/* 閉じるボタン */}
 				<Pressable onPress={() => router.dismiss()} style={styles.closeButton}>
 					<Ionicons name="close" size={24} color={Colors.gray} />
@@ -541,6 +601,11 @@ const styles = StyleSheet.create({
 		borderBottomWidth: 1,
 		borderBottomColor: Colors.grayLighter,
 	},
+	headerLeft: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 4,
+	},
 	headerButton: {
 		flexDirection: "row",
 		alignItems: "center",
@@ -688,6 +753,7 @@ const styles = StyleSheet.create({
 		paddingBottom: 36,
 		borderTopWidth: 1,
 		borderTopColor: Colors.grayLighter,
+		gap: 12,
 	},
 	saveButton: {
 		backgroundColor: Colors.primaryDark,
@@ -728,5 +794,20 @@ const styles = StyleSheet.create({
 		color: Colors.white,
 		fontSize: 18,
 		fontWeight: "bold",
+	},
+	headerDeleteButton: {
+		paddingVertical: 4,
+		paddingHorizontal: 8,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	headerDeleteIcon: {
+		marginRight: 4,
+	},
+	headerDeleteText: {
+		color: Colors.danger,
+		fontSize: 13,
+		fontWeight: "600",
 	},
 });
