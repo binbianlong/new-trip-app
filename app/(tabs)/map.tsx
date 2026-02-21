@@ -1,4 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import {
+	Audio,
+	type AVPlaybackStatus,
+	InterruptionModeAndroid,
+	InterruptionModeIOS,
+} from "expo-av";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -8,6 +14,8 @@ import {
 	type FlatList,
 	Image,
 	Modal,
+	type NativeScrollEvent,
+	type NativeSyntheticEvent,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -25,6 +33,7 @@ const CARD_WIDTH = SCREEN_WIDTH * 0.52;
 const CARD_SPACING = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
+const PHOTO_FOCUS_DELTA = 0.08;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -67,6 +76,12 @@ export default function MapScreen() {
 	const mapRef = useRef<MapView>(null);
 	const photoListRef = useRef<FlatList<Photo>>(null);
 	const scrollX = useRef(new Animated.Value(0)).current;
+	const tripThemeSoundRef = useRef<Audio.Sound | null>(null);
+	const tripThemeSourceRef = useRef<{
+		tripId: string;
+		previewUrl: string;
+	} | null>(null);
+	const tripThemePlayRequestIdRef = useRef(0);
 
 	const [trips, setTrips] = useState<Trip[]>([]);
 	const [photos, setPhotos] = useState<Photo[]>([]);
@@ -83,6 +98,55 @@ export default function MapScreen() {
 		}
 		return map;
 	}, [trips]);
+
+	const resolveAvatarDisplayUrl = useCallback(async (raw: string | null) => {
+		if (!raw) return null;
+		const avatarBucket =
+			process.env.EXPO_PUBLIC_SUPABASE_AVATAR_BUCKET ?? "photos";
+		if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+			const { data, error } = await supabase.storage
+				.from(avatarBucket)
+				.createSignedUrl(raw, 60 * 60);
+			if (!error && data?.signedUrl) return data.signedUrl;
+			if (error) {
+				console.warn("Header createSignedUrl failed:", {
+					bucket: avatarBucket,
+					path: raw,
+					message: error.message,
+				});
+			}
+			const { data: publicData } = supabase.storage
+				.from(avatarBucket)
+				.getPublicUrl(raw);
+			return publicData.publicUrl;
+		}
+		try {
+			const parsed = new URL(raw);
+			const match = parsed.pathname.match(
+				/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/,
+			);
+			if (!match) return raw;
+			const [, bucket, objectPathRaw] = match;
+			const objectPath = decodeURIComponent(objectPathRaw);
+			const { data, error } = await supabase.storage
+				.from(bucket)
+				.createSignedUrl(objectPath, 60 * 60);
+			if (!error && data?.signedUrl) return data.signedUrl;
+			if (error) {
+				console.warn("Header createSignedUrl from URL failed:", {
+					bucket,
+					path: objectPath,
+					message: error.message,
+				});
+			}
+			const { data: publicData } = supabase.storage
+				.from(bucket)
+				.getPublicUrl(objectPath);
+			return publicData.publicUrl;
+		} catch {
+			return raw;
+		}
+	}, []);
 
 	/** 旅行ごとの写真 */
 	const photosByTrip = useMemo(() => {
@@ -142,6 +206,21 @@ export default function MapScreen() {
 	/** 選択中の旅行のメンバー */
 	const [selectedMembers, setSelectedMembers] = useState<User[]>([]);
 
+	const unloadTripThemeSound = useCallback(async () => {
+		const sound = tripThemeSoundRef.current;
+		tripThemeSoundRef.current = null;
+		tripThemeSourceRef.current = null;
+		if (!sound) return;
+
+		try {
+			sound.setOnPlaybackStatusUpdate(null);
+			await sound.stopAsync();
+			await sound.unloadAsync();
+		} catch (error) {
+			console.error("unloadTripThemeSound error:", error);
+		}
+	}, []);
+
 	useEffect(() => {
 		if (!selectedTripId) {
 			setSelectedMembers([]);
@@ -183,12 +262,107 @@ export default function MapScreen() {
 							deleted_at: null,
 						},
 				);
-				setSelectedMembers(resolvedUsers);
+				if (resolvedUsers) {
+					const resolvedData = await Promise.all(
+						resolvedUsers.map(async (user) => {
+							if (user.avatar_url) {
+								const resolvedUrl = await resolveAvatarDisplayUrl(
+									user.avatar_url,
+								);
+								return { ...user, avatar_url: resolvedUrl };
+							}
+							return user;
+						}),
+					);
+					setSelectedMembers(resolvedData);
+					console.log("アバターURL解決後の検索結果:", resolvedData);
+					return;
+				}
 			} else {
 				setSelectedMembers([]);
 			}
 		})();
-	}, [selectedTrip, selectedTripId]);
+	}, [selectedTrip, selectedTripId, resolveAvatarDisplayUrl]);
+
+	useEffect(() => {
+		const previewUrl = selectedTrip?.theme_music_preview_url;
+		const currentTripId = selectedTrip?.id;
+		const requestId = ++tripThemePlayRequestIdRef.current;
+
+		if (!currentTripId || !previewUrl) {
+			void unloadTripThemeSound();
+			return;
+		}
+
+		void (async () => {
+			try {
+				const currentSource = tripThemeSourceRef.current;
+				if (
+					currentSource &&
+					currentSource.tripId === currentTripId &&
+					currentSource.previewUrl === previewUrl &&
+					tripThemeSoundRef.current
+				) {
+					await tripThemeSoundRef.current.replayAsync();
+					return;
+				}
+
+				await unloadTripThemeSound();
+				await Audio.setAudioModeAsync({
+					playsInSilentModeIOS: true,
+					staysActiveInBackground: false,
+					shouldDuckAndroid: true,
+					playThroughEarpieceAndroid: false,
+					interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+					interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+				});
+
+				const { sound } = await Audio.Sound.createAsync(
+					{ uri: previewUrl },
+					{
+						shouldPlay: true,
+						positionMillis: 0,
+						progressUpdateIntervalMillis: 300,
+					},
+					(status: AVPlaybackStatus) => {
+						if (!status.isLoaded) return;
+						if (status.didJustFinish) {
+							// 30秒プレビューの自然終了はそのままにする
+						}
+					},
+				);
+
+				if (requestId !== tripThemePlayRequestIdRef.current) {
+					await sound.unloadAsync();
+					return;
+				}
+
+				tripThemeSoundRef.current = sound;
+				tripThemeSourceRef.current = { tripId: currentTripId, previewUrl };
+			} catch (error) {
+				console.error("playTripThemeSound error:", error);
+				void unloadTripThemeSound();
+			}
+		})();
+	}, [
+		selectedTrip?.id,
+		selectedTrip?.theme_music_preview_url,
+		unloadTripThemeSound,
+	]);
+
+	useFocusEffect(
+		useCallback(() => {
+			return () => {
+				void unloadTripThemeSound();
+			};
+		}, [unloadTripThemeSound]),
+	);
+
+	useEffect(() => {
+		return () => {
+			void unloadTripThemeSound();
+		};
+	}, [unloadTripThemeSound]);
 
 	/** 写真を時系列順に並べて経路として使う */
 	const photoRouteByTrip = useMemo(() => {
@@ -295,23 +469,29 @@ export default function MapScreen() {
 		[selectedTripId],
 	);
 
-	const handlePhotoCardPress = useCallback((photo: Photo) => {
-		if (photo.image_url) {
-			setPreviewPhoto(photo);
-		}
-		if (photo.lat != null && photo.lng != null) {
-			setFocusedPhotoId(photo.id);
-			mapRef.current?.animateToRegion(
-				{
-					latitude: photo.lat,
-					longitude: photo.lng,
-					latitudeDelta: 0.02,
-					longitudeDelta: 0.02,
-				},
-				400,
-			);
-		}
+	const focusPhotoOnMap = useCallback((photo: Photo, duration = 400) => {
+		setFocusedPhotoId(photo.id);
+		if (photo.lat == null || photo.lng == null) return;
+		mapRef.current?.animateToRegion(
+			{
+				latitude: photo.lat,
+				longitude: photo.lng,
+				latitudeDelta: PHOTO_FOCUS_DELTA,
+				longitudeDelta: PHOTO_FOCUS_DELTA,
+			},
+			duration,
+		);
 	}, []);
+
+	const handlePhotoCardPress = useCallback(
+		(photo: Photo) => {
+			if (photo.image_url) {
+				setPreviewPhoto(photo);
+			}
+			focusPhotoOnMap(photo);
+		},
+		[focusPhotoOnMap],
+	);
 
 	const handleMapPress = useCallback(() => {
 		setFocusedPhotoId(null);
@@ -347,31 +527,35 @@ export default function MapScreen() {
 		);
 	}, [tripPositions, selectedTripId, filteredTripIds]);
 
-	const onViewableItemsChanged = useCallback(
-		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
-			if (viewableItems.length === 0) return;
-			const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
-			if (!centerItem) return;
-			const photo = centerItem.item;
-			setFocusedPhotoId(photo.id);
-			if (photo.lat != null && photo.lng != null) {
-				mapRef.current?.animateToRegion(
-					{
-						latitude: photo.lat,
-						longitude: photo.lng,
-						latitudeDelta: 0.02,
-						longitudeDelta: 0.02,
-					},
-					300,
-				);
-			}
+	const focusPhotoFromOffset = useCallback(
+		(offsetX: number, duration = 300) => {
+			if (selectedPhotos.length === 0) return;
+			const rawIndex = Math.round(offsetX / SNAP_INTERVAL);
+			const clampedIndex = Math.min(
+				Math.max(rawIndex, 0),
+				selectedPhotos.length - 1,
+			);
+			const photo = selectedPhotos[clampedIndex];
+			if (!photo) return;
+			focusPhotoOnMap(photo, duration);
 		},
-		[],
+		[selectedPhotos, focusPhotoOnMap],
 	);
 
-	const viewabilityConfig = useMemo(
-		() => ({ itemVisiblePercentThreshold: 60 }),
-		[],
+	const handlePhotoListMomentumEnd = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			focusPhotoFromOffset(event.nativeEvent.contentOffset.x, 300);
+		},
+		[focusPhotoFromOffset],
+	);
+
+	const handlePhotoListScrollEndDrag = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			const xVelocity = event.nativeEvent.velocity?.x ?? 0;
+			if (Math.abs(xVelocity) > 0.05) return;
+			focusPhotoFromOffset(event.nativeEvent.contentOffset.x, 300);
+		},
+		[focusPhotoFromOffset],
 	);
 
 	const renderPhotoCard = useCallback(
@@ -705,8 +889,8 @@ export default function MapScreen() {
 								{ useNativeDriver: true },
 							)}
 							scrollEventThrottle={16}
-							onViewableItemsChanged={onViewableItemsChanged}
-							viewabilityConfig={viewabilityConfig}
+							onScrollEndDrag={handlePhotoListScrollEndDrag}
+							onMomentumScrollEnd={handlePhotoListMomentumEnd}
 							getItemLayout={(_, index) => ({
 								length: SNAP_INTERVAL,
 								offset: SNAP_INTERVAL * index,
