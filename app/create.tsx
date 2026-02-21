@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
 	Alert,
+	Image,
 	KeyboardAvoidingView,
 	Platform,
 	Pressable,
@@ -17,6 +18,8 @@ import {
 import { Colors } from "../src/constants/colors";
 import { supabase } from "../src/lib/supabase";
 import { fetchTrips } from "../src/store/tripStore";
+import type { User } from "../src/types";
+import { ParticipantPickerModal } from "./components/ParticipantPickerModal";
 
 // フォームの型定義
 type TripFormData = {
@@ -29,6 +32,9 @@ type TripFormData = {
 export default function CreateScreen() {
 	const router = useRouter();
 	const [isSubmitting, setIsSubmitting] = useState(false); // ★送信中かどうかを管理
+	const [participantModalVisible, setParticipantModalVisible] = useState(false);
+	const [selectedParticipants, setSelectedParticipants] = useState<User[]>([]);
+	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 	const {
 		control,
 		handleSubmit,
@@ -44,6 +50,27 @@ export default function CreateScreen() {
 	// 開始日ピッカーの表示状態
 	const [showDatePicker, setShowDatePicker] = useState(false);
 
+	useEffect(() => {
+		void supabase.auth.getUser().then(({ data }) => {
+			setCurrentUserId(data.user?.id ?? null);
+		});
+	}, []);
+
+	const handleSelectParticipant = (user: User) => {
+		setSelectedParticipants((prev) => {
+			if (prev.some((participant) => participant.id === user.id)) {
+				return prev;
+			}
+			return [...prev, user];
+		});
+	};
+
+	const handleRemoveParticipant = (userId: string) => {
+		setSelectedParticipants((prev) =>
+			prev.filter((participant) => participant.id !== userId),
+		);
+	};
+
 	// ★ ここを非同期(async)に書き換えます
 	const onSubmit = async (data: TripFormData) => {
 		if (isSubmitting) return;
@@ -57,24 +84,71 @@ export default function CreateScreen() {
 				throw new Error("ログイン情報が見つかりません。");
 			}
 
-			const { error } = await supabase.from("trips").insert([
-				{
-					title: data.title,
-					start_date: data.start_date,
-					memo: data.memo,
-					status: "planned",
-					owner_user_id: authData.user.id,
-				},
-			]);
+			const { data: createdTrip, error } = await supabase
+				.from("trips")
+				.insert([
+					{
+						title: data.title,
+						start_date: data.start_date,
+						memo: data.memo,
+						status: "planned",
+						owner_user_id: authData.user.id,
+					},
+				])
+				.select("id")
+				.single();
 
 			if (error) throw error;
+
+			const participantIds = [
+				authData.user.id,
+				...selectedParticipants.map((participant) => participant.id),
+			];
+			const uniqueParticipantIds = [...new Set(participantIds)];
+			const joinedAt = new Date().toISOString();
+
+			const { data: existingMembers, error: existingMembersError } =
+				await supabase
+					.from("trip_members")
+					.select("user_id")
+					.eq("trip_id", createdTrip.id)
+					.in("user_id", uniqueParticipantIds);
+			if (existingMembersError) {
+				throw existingMembersError;
+			}
+
+			const existingUserIdSet = new Set(
+				(existingMembers ?? [])
+					.map((member) => member.user_id)
+					.filter((userId): userId is string => userId != null),
+			);
+
+			const membersToInsert = uniqueParticipantIds
+				.filter((userId) => !existingUserIdSet.has(userId))
+				.map((userId) => ({
+					trip_id: createdTrip.id,
+					user_id: userId,
+					joined_at: joinedAt,
+				}));
+
+			if (membersToInsert.length > 0) {
+				const { error: memberInsertError } = await supabase
+					.from("trip_members")
+					.insert(membersToInsert);
+				if (memberInsertError) {
+					throw memberInsertError;
+				}
+			}
 
 			await fetchTrips();
 			Alert.alert("作成完了", "旅行プランを保存しました！");
 			router.back();
-		} catch (error: any) {
+		} catch (error) {
 			console.error(error);
-			Alert.alert("エラー", error.message || "保存に失敗しました");
+			Alert.alert(
+				"エラー",
+				error instanceof Error ? error.message : "保存に失敗しました",
+			);
 		} finally {
 			setIsSubmitting(false);
 		}
@@ -115,7 +189,43 @@ export default function CreateScreen() {
 				{/* 参加者追加ボタン */}
 				<View style={styles.field}>
 					<Text style={styles.label}>参加者</Text>
-					<Pressable style={styles.addParticipantButton}>
+					{selectedParticipants.length > 0 && (
+						<View style={styles.participants}>
+							{selectedParticipants.map((user) => {
+								const displayName =
+									user.profile_name ?? user.username ?? "未設定";
+								return (
+									<View key={user.id} style={styles.participantItem}>
+										{user.avatar_url ? (
+											<Image
+												source={{ uri: user.avatar_url }}
+												style={styles.avatar}
+											/>
+										) : (
+											<View style={styles.avatarFallback}>
+												<Text style={styles.avatarInitial}>
+													{displayName.charAt(0)}
+												</Text>
+											</View>
+										)}
+										<Text style={styles.participantName} numberOfLines={1}>
+											{displayName}
+										</Text>
+										<Pressable
+											onPress={() => handleRemoveParticipant(user.id)}
+											style={styles.removeParticipantButton}
+										>
+											<Ionicons name="close" size={14} color={Colors.white} />
+										</Pressable>
+									</View>
+								);
+							})}
+						</View>
+					)}
+					<Pressable
+						style={styles.addParticipantButton}
+						onPress={() => setParticipantModalVisible(true)}
+					>
 						<Ionicons
 							name="person-add-outline"
 							size={18}
@@ -158,7 +268,7 @@ export default function CreateScreen() {
 										mode="date"
 										display={Platform.OS === "ios" ? "spinner" : "default"}
 										locale="ja"
-										onChange={(event, selectedDate) => {
+										onChange={(_event, selectedDate) => {
 											if (Platform.OS !== "ios") {
 												setShowDatePicker(false);
 											}
@@ -218,6 +328,15 @@ export default function CreateScreen() {
 					</Text>
 				</Pressable>
 			</ScrollView>
+			<ParticipantPickerModal
+				visible={participantModalVisible}
+				onClose={() => setParticipantModalVisible(false)}
+				onSelectUser={handleSelectParticipant}
+				selectedUserIds={selectedParticipants.map(
+					(participant) => participant.id,
+				)}
+				excludeUserIds={currentUserId ? [currentUserId] : []}
+			/>
 		</KeyboardAvoidingView>
 	);
 }
@@ -286,6 +405,52 @@ const styles = StyleSheet.create({
 	memoInput: {
 		height: 120,
 		textAlignVertical: "top",
+	},
+	participants: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 12,
+		marginBottom: 12,
+	},
+	participantItem: {
+		alignItems: "center",
+		maxWidth: 72,
+		position: "relative",
+	},
+	avatar: {
+		width: 48,
+		height: 48,
+		borderRadius: 24,
+	},
+	avatarFallback: {
+		width: 48,
+		height: 48,
+		borderRadius: 24,
+		backgroundColor: Colors.primary,
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	avatarInitial: {
+		color: Colors.white,
+		fontSize: 16,
+		fontWeight: "700",
+	},
+	participantName: {
+		marginTop: 6,
+		fontSize: 12,
+		color: Colors.black,
+		textAlign: "center",
+	},
+	removeParticipantButton: {
+		position: "absolute",
+		top: -4,
+		right: -4,
+		width: 18,
+		height: 18,
+		borderRadius: 9,
+		backgroundColor: Colors.gray,
+		alignItems: "center",
+		justifyContent: "center",
 	},
 	addParticipantButton: {
 		flexDirection: "row",

@@ -26,6 +26,7 @@ import {
 	updateTripStatus,
 } from "../../src/store/tripStore";
 import type { User } from "../../src/types";
+import { ParticipantPickerModal } from "../components/ParticipantPickerModal";
 
 // 編集フォームの型定義
 type TripFormData = {
@@ -57,13 +58,21 @@ export default function TripDetailModal() {
 
 	// この旅行の参加者ユーザーを Supabase から取得
 	const [participants, setParticipants] = useState<User[]>([]);
+	const [participantModalVisible, setParticipantModalVisible] = useState(false);
+	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+	useEffect(() => {
+		void supabase.auth.getUser().then(({ data }) => {
+			setCurrentUserId(data.user?.id ?? null);
+		});
+	}, []);
 
 	const fetchParticipants = useCallback(async () => {
 		const { data: members } = await supabase
 			.from("trip_members")
 			.select("user_id")
 			.eq("trip_id", trip.id)
-			.is("deletead_at", null);
+			.is("deleted_at", null);
 
 		const userIds = (members ?? [])
 			.map((m) => m.user_id)
@@ -75,12 +84,78 @@ export default function TripDetailModal() {
 				.select("*")
 				.in("id", userIds);
 			setParticipants(users ?? []);
+		} else {
+			setParticipants([]);
 		}
 	}, [trip.id]);
 
 	useEffect(() => {
 		fetchParticipants();
 	}, [fetchParticipants]);
+
+	const handleAddParticipant = useCallback(
+		async (user: User) => {
+			if (participants.some((participant) => participant.id === user.id)) {
+				Alert.alert("追加済み", "このユーザーは既に参加者です");
+				return;
+			}
+
+			try {
+				const { data: existingMember, error: existingError } = await supabase
+					.from("trip_members")
+					.select("id,deleted_at")
+					.eq("trip_id", trip.id)
+					.eq("user_id", user.id)
+					.order("id", { ascending: false })
+					.limit(1)
+					.maybeSingle();
+				if (existingError) {
+					throw existingError;
+				}
+
+				if (existingMember?.id) {
+					if (existingMember.deleted_at == null) {
+						Alert.alert("追加済み", "このユーザーは既に参加者です");
+						setParticipantModalVisible(false);
+						return;
+					}
+
+					const { error: restoreError } = await supabase
+						.from("trip_members")
+						.update({
+							deleted_at: null,
+							joined_at: new Date().toISOString(),
+						})
+						.eq("id", existingMember.id);
+					if (restoreError) {
+						throw restoreError;
+					}
+				} else {
+					const { error: insertError } = await supabase
+						.from("trip_members")
+						.insert([
+							{
+								trip_id: trip.id,
+								user_id: user.id,
+								joined_at: new Date().toISOString(),
+							},
+						]);
+					if (insertError) {
+						throw insertError;
+					}
+				}
+
+				await fetchParticipants();
+				setParticipantModalVisible(false);
+			} catch (error) {
+				Alert.alert(
+					"追加エラー",
+					error instanceof Error ? error.message : "参加者の追加に失敗しました",
+				);
+			}
+		},
+		[participants, trip.id, fetchParticipants],
+	);
 
 	// 編集モードの状態管理
 	const [isEditing, setIsEditing] = useState(false);
@@ -266,13 +341,18 @@ export default function TripDetailModal() {
 										</Text>
 									</View>
 								)}
-								<Text style={styles.participantName}>{user.profile_name}</Text>
+								<Text style={styles.participantName}>
+									{user.profile_name ?? user.username ?? "未設定"}
+								</Text>
 							</View>
 						))}
 					</View>
 					{/* 編集中は参加者追加ボタンを表示 */}
 					{isEditing && (
-						<Pressable style={styles.addParticipantButton}>
+						<Pressable
+							style={styles.addParticipantButton}
+							onPress={() => setParticipantModalVisible(true)}
+						>
 							<Ionicons
 								name="person-add-outline"
 								size={18}
@@ -425,6 +505,13 @@ export default function TripDetailModal() {
 					</Pressable>
 				)}
 			</View>
+			<ParticipantPickerModal
+				visible={participantModalVisible}
+				onClose={() => setParticipantModalVisible(false)}
+				onSelectUser={handleAddParticipant}
+				selectedUserIds={participants.map((participant) => participant.id)}
+				excludeUserIds={currentUserId ? [currentUserId] : []}
+			/>
 		</KeyboardAvoidingView>
 	);
 }
