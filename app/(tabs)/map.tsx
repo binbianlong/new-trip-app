@@ -2,8 +2,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
+	Animated,
 	Dimensions,
-	FlatList,
+	type FlatList,
 	Image,
 	ScrollView,
 	StyleSheet,
@@ -18,9 +19,10 @@ import { supabase } from "../../src/lib/supabase";
 import type { Photo, Trip, User } from "../../src/types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const PHOTO_CARD_WIDTH = SCREEN_WIDTH * 0.4;
-const PHOTO_CARD_WIDTH_FOCUSED = SCREEN_WIDTH * 0.55;
-const PHOTO_CARD_WIDTH_UNFOCUSED = SCREEN_WIDTH * 0.28;
+const CARD_WIDTH = SCREEN_WIDTH * 0.52;
+const CARD_SPACING = 12;
+const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
+const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 
 const JAPAN_REGION: Region = {
 	latitude: 36.5,
@@ -62,6 +64,7 @@ export default function MapScreen() {
 	const insets = useSafeAreaInsets();
 	const mapRef = useRef<MapView>(null);
 	const photoListRef = useRef<FlatList<Photo>>(null);
+	const scrollX = useRef(new Animated.Value(0)).current;
 
 	const [trips, setTrips] = useState<Trip[]>([]);
 	const [photos, setPhotos] = useState<Photo[]>([]);
@@ -308,80 +311,91 @@ export default function MapScreen() {
 	const onViewableItemsChanged = useCallback(
 		({ viewableItems }: { viewableItems: Array<{ item: Photo }> }) => {
 			if (viewableItems.length === 0) return;
-			// 一番左側の見えているカードを選択する
-			const centerItem = viewableItems[0];
+			const centerItem = viewableItems[Math.floor(viewableItems.length / 2)];
 			if (!centerItem) return;
 			const photo = centerItem.item;
-			if (photo.lat == null || photo.lng == null) return;
 			setFocusedPhotoId(photo.id);
-			mapRef.current?.animateToRegion(
-				{
-					latitude: photo.lat,
-					longitude: photo.lng,
-					latitudeDelta: 0.02,
-					longitudeDelta: 0.02,
-				},
-				300,
-			);
+			if (photo.lat != null && photo.lng != null) {
+				mapRef.current?.animateToRegion(
+					{
+						latitude: photo.lat,
+						longitude: photo.lng,
+						latitudeDelta: 0.02,
+						longitudeDelta: 0.02,
+					},
+					300,
+				);
+			}
 		},
 		[],
 	);
 
 	const viewabilityConfig = useMemo(
-		() => ({ itemVisiblePercentThreshold: 50 }),
+		() => ({ itemVisiblePercentThreshold: 60 }),
 		[],
 	);
 
 	const renderPhotoCard = useCallback(
-		({ item }: { item: Photo }) => {
-			const isFocused = item.id === focusedPhotoId;
-			const hasAnyFocus = focusedPhotoId != null;
-			const cardWidth = isFocused
-				? PHOTO_CARD_WIDTH_FOCUSED
-				: hasAnyFocus
-					? PHOTO_CARD_WIDTH_UNFOCUSED
-					: PHOTO_CARD_WIDTH;
-			const color = tripColorMap[item.trip_id ?? ""] ?? Colors.primary;
+		({ item, index }: { item: Photo; index: number }) => {
+			const inputRange = [
+				(index - 1) * SNAP_INTERVAL,
+				index * SNAP_INTERVAL,
+				(index + 1) * SNAP_INTERVAL,
+			];
+			const scale = scrollX.interpolate({
+				inputRange,
+				outputRange: [0.85, 1, 0.85],
+				extrapolate: "clamp",
+			});
+			const opacity = scrollX.interpolate({
+				inputRange,
+				outputRange: [0.6, 1, 0.6],
+				extrapolate: "clamp",
+			});
 			return (
-				<TouchableOpacity
-					style={[
-						styles.photoCard,
-						{ width: cardWidth },
-						isFocused && { borderColor: color, borderWidth: 2 },
-					]}
-					onPress={() => handlePhotoCardPress(item)}
-					activeOpacity={0.85}
+				<Animated.View
+					style={{
+						width: CARD_WIDTH,
+						transform: [{ scale }],
+						opacity,
+					}}
 				>
-					<View style={[styles.photoCardImage, { height: cardWidth * 0.75 }]}>
-						{item.image_url ? (
-							<Image
-								source={{ uri: item.image_url }}
-								style={styles.photoCardImageFull}
-							/>
-						) : (
-							<View style={styles.photoCardPlaceholder}>
-								<Ionicons
-									name="image-outline"
-									size={32}
-									color={Colors.grayLight}
+					<TouchableOpacity
+						style={styles.photoCard}
+						onPress={() => handlePhotoCardPress(item)}
+						activeOpacity={0.9}
+					>
+						<View style={styles.photoCardImage}>
+							{item.image_url ? (
+								<Image
+									source={{ uri: item.image_url }}
+									style={styles.photoCardImageFull}
 								/>
-							</View>
+							) : (
+								<View style={styles.photoCardPlaceholder}>
+									<Ionicons
+										name="image-outline"
+										size={32}
+										color={Colors.grayLight}
+									/>
+								</View>
+							)}
+						</View>
+						{item.created_at && (
+							<Text style={styles.photoCardDate} numberOfLines={1}>
+								{new Date(item.created_at).toLocaleString("ja-JP", {
+									month: "short",
+									day: "numeric",
+									hour: "2-digit",
+									minute: "2-digit",
+								})}
+							</Text>
 						)}
-					</View>
-					{item.created_at && (
-						<Text style={styles.photoCardDate} numberOfLines={1}>
-							{new Date(item.created_at).toLocaleString("ja-JP", {
-								month: "short",
-								day: "numeric",
-								hour: "2-digit",
-								minute: "2-digit",
-							})}
-						</Text>
-					)}
-				</TouchableOpacity>
+					</TouchableOpacity>
+				</Animated.View>
 			);
 		},
-		[focusedPhotoId, tripColorMap, handlePhotoCardPress],
+		[scrollX, handlePhotoCardPress],
 	);
 
 	if (loading) {
@@ -602,50 +616,48 @@ export default function MapScreen() {
 				</TouchableOpacity>
 			)}
 
-			{/* 下部パネル: 写真のみ */}
-			<View style={styles.bottomPanel}>
-				{(() => {
-					const displayPhotos = selectedTrip ? selectedPhotos : allPhotosSorted;
-					if (displayPhotos.length > 0) {
-						return (
-							<FlatList
-								ref={photoListRef}
-								data={displayPhotos}
-								keyExtractor={(item) => String(item.id)}
-								renderItem={renderPhotoCard}
-								horizontal
-								showsHorizontalScrollIndicator={false}
-								contentContainerStyle={styles.photoList}
-								ItemSeparatorComponent={() => (
-									<View style={styles.photoSeparator} />
-								)}
-								onViewableItemsChanged={onViewableItemsChanged}
-								viewabilityConfig={viewabilityConfig}
-								extraData={focusedPhotoId}
-								getItemLayout={(_, index) => ({
-									length: PHOTO_CARD_WIDTH + 10,
-									offset: (PHOTO_CARD_WIDTH + 10) * index,
-									index,
-								})}
-							/>
-						);
-					}
-					return (
+			{/* 下部パネル: 旅行選択時のみ写真表示 */}
+			{selectedTrip && (
+				<View style={styles.bottomPanel}>
+					{selectedPhotos.length > 0 ? (
+						<Animated.FlatList
+							ref={photoListRef}
+							data={selectedPhotos}
+							keyExtractor={(item) => String(item.id)}
+							renderItem={renderPhotoCard}
+							horizontal
+							showsHorizontalScrollIndicator={false}
+							contentContainerStyle={styles.photoList}
+							ItemSeparatorComponent={() => (
+								<View style={styles.photoSeparator} />
+							)}
+							snapToInterval={SNAP_INTERVAL}
+							decelerationRate="fast"
+							onScroll={Animated.event(
+								[{ nativeEvent: { contentOffset: { x: scrollX } } }],
+								{ useNativeDriver: true },
+							)}
+							scrollEventThrottle={16}
+							onViewableItemsChanged={onViewableItemsChanged}
+							viewabilityConfig={viewabilityConfig}
+							getItemLayout={(_, index) => ({
+								length: SNAP_INTERVAL,
+								offset: SNAP_INTERVAL * index,
+								index,
+							})}
+						/>
+					) : (
 						<View style={styles.emptyPanel}>
 							<Ionicons
-								name={trips.length > 0 ? "camera-outline" : "map-outline"}
+								name="camera-outline"
 								size={28}
 								color={Colors.grayLight}
 							/>
-							<Text style={styles.emptyPanelText}>
-								{trips.length > 0
-									? "まだ写真がありません"
-									: "旅行がまだありません"}
-							</Text>
+							<Text style={styles.emptyPanelText}>まだ写真がありません</Text>
 						</View>
-					);
-				})()}
-			</View>
+					)}
+				</View>
+			)}
 		</View>
 	);
 }
@@ -877,24 +889,26 @@ const styles = StyleSheet.create({
 
 	/* 写真ギャラリー */
 	photoList: {
-		paddingHorizontal: SCREEN_WIDTH / 2 - PHOTO_CARD_WIDTH / 2,
-		paddingBottom: 8,
-		alignItems: "flex-end",
+		paddingHorizontal: SIDE_PADDING,
+		alignItems: "center",
 	},
 	photoSeparator: {
-		width: 10,
+		width: CARD_SPACING,
 	},
 	photoCard: {
-		width: PHOTO_CARD_WIDTH,
-		borderRadius: 12,
-		backgroundColor: "transparent",
+		width: CARD_WIDTH,
+		borderRadius: 14,
+		backgroundColor: Colors.white,
 		overflow: "hidden",
-		borderWidth: 1,
-		borderColor: "transparent",
+		shadowColor: Colors.black,
+		shadowOffset: { width: 0, height: 3 },
+		shadowOpacity: 0.2,
+		shadowRadius: 6,
+		elevation: 5,
 	},
 	photoCardImage: {
 		width: "100%",
-		height: PHOTO_CARD_WIDTH * 0.75,
+		height: CARD_WIDTH * 0.75,
 	},
 	photoCardImageFull: {
 		width: "100%",
@@ -908,11 +922,11 @@ const styles = StyleSheet.create({
 		backgroundColor: Colors.grayLighter,
 	},
 	photoCardDate: {
-		fontSize: 11,
+		fontSize: 12,
 		color: Colors.gray,
-		paddingHorizontal: 8,
-		paddingVertical: 4,
-		backgroundColor: Colors.white,
+		paddingHorizontal: 10,
+		paddingVertical: 6,
+		textAlign: "center",
 	},
 
 	/* 写真なし */
