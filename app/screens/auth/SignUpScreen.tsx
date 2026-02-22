@@ -1,23 +1,14 @@
 import "react-native-url-polyfill/auto";
 import type { JwtPayload } from "@supabase/supabase-js";
-import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import {
-	Pressable,
-	SafeAreaView,
-	ScrollView,
-	StyleSheet,
-	Text,
-	View,
-} from "react-native";
+import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { supabase } from "../../../src/lib/supabase";
 import SignUp from "../../components/SignUp";
 import { SplashScreen } from "../../components/User/SplashScreen";
 
 export default function App() {
 	const [claims, setClaims] = useState<JwtPayload | null>(null);
-	const [isLoading, setIsLoading] = useState(true); // 1. ローディング状態の初期値をtrueに
-	const router = useRouter();
+	const [isLoading, setIsLoading] = useState(true);
 
 	useEffect(() => {
 		// データ取得処理
@@ -45,17 +36,6 @@ export default function App() {
 
 				{/* サインアップフォームコンポーネント */}
 				<SignUp />
-
-				{/* ログインへの導線 */}
-				<Pressable
-					onPress={() => router.push("/screens/auth/SignInScreen")}
-					style={({ pressed }) => [
-						styles.signUpLink,
-						pressed && { opacity: 0.6 },
-					]}
-				>
-					<Text style={styles.signUpText}>ログインの方はこちら</Text>
-				</Pressable>
 
 				{/* デバッグ情報（必要なければここを削除してください） */}
 				{claims && (
@@ -98,16 +78,6 @@ const styles = StyleSheet.create({
 		marginTop: 8,
 		letterSpacing: 4,
 		fontFamily: "Keifont",
-	},
-	signUpLink: {
-		marginTop: 30,
-		padding: 10,
-	},
-	signUpText: {
-		fontSize: 15,
-		fontWeight: "bold",
-		color: "#4A7C59",
-		textDecorationLine: "underline",
 	},
 	debugInfo: {
 		marginTop: 50,
