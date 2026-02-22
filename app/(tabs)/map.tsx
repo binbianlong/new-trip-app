@@ -1108,6 +1108,10 @@ export default function MapScreen() {
 						)}
 						snapToInterval={TRIP_SNAP_INTERVAL}
 						decelerationRate="fast"
+						initialScrollIndex={Math.max(
+							filteredTrips.findIndex((t) => t.id === selectedTripId),
+							0,
+						)}
 						onScroll={Animated.event(
 							[{ nativeEvent: { contentOffset: { x: tripScrollX } } }],
 							{ useNativeDriver: true },
