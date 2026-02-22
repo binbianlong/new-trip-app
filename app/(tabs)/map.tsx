@@ -846,7 +846,7 @@ export default function MapScreen() {
 					style={{
 						width: TRIP_CARD_WIDTH,
 						transform: [{ scale }],
-						opacity,
+						opacity: isSelected ? 1 : opacity,
 					}}
 				>
 					<View
