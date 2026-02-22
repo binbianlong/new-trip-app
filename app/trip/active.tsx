@@ -715,40 +715,44 @@ export default function ActiveTripScreen() {
 
 			{/* 上部オーバーレイ（戻るボタン + トリップ情報カード） */}
 			<SafeAreaView style={styles.overlay} pointerEvents="box-none">
-				<Pressable style={styles.backButton} onPress={safeGoBack}>
-					<Ionicons name="arrow-back" size={24} color={Colors.black} />
-				</Pressable>
+				<View style={styles.overlayRow}>
+					<Pressable style={styles.backButton} onPress={safeGoBack}>
+						<Ionicons name="arrow-back" size={24} color={Colors.black} />
+					</Pressable>
 
-				{trip && (
-					<View style={styles.tripCard}>
-						<Text style={styles.tripTitle}>{trip.title}</Text>
-						<Text style={styles.tripDate}>
-							{trip.start_date ? `${trip.start_date}〜` : ""}
-						</Text>
-						{participants.length > 0 && (
-							<View style={styles.avatarRow}>
-								{participants.map((user) =>
-									user.avatar_url ? (
-										<Image
-											key={user.id}
-											source={{ uri: user.avatar_url }}
-											style={styles.avatar}
-										/>
-									) : (
-										<View
-											key={user.id}
-											style={[styles.avatar, styles.avatarFallback]}
-										>
-											<Text style={styles.avatarInitial}>
-												{user.profile_name?.charAt(0) ?? "?"}
-											</Text>
-										</View>
-									),
-								)}
-							</View>
-						)}
-					</View>
-				)}
+					{trip && (
+						<View style={styles.tripCard}>
+							<Text style={styles.tripTitle} numberOfLines={1}>
+								{trip.title}
+							</Text>
+							<Text style={styles.tripDate}>
+								{trip.start_date ? `${trip.start_date}〜` : ""}
+							</Text>
+							{participants.length > 0 && (
+								<View style={styles.avatarRow}>
+									{participants.map((user) =>
+										user.avatar_url ? (
+											<Image
+												key={user.id}
+												source={{ uri: user.avatar_url }}
+												style={styles.avatar}
+											/>
+										) : (
+											<View
+												key={user.id}
+												style={[styles.avatar, styles.avatarFallback]}
+											>
+												<Text style={styles.avatarInitial}>
+													{user.profile_name?.charAt(0) ?? "?"}
+												</Text>
+											</View>
+										),
+									)}
+								</View>
+							)}
+						</View>
+					)}
+				</View>
 			</SafeAreaView>
 
 			{/* 写真カード一覧 */}
@@ -1026,9 +1030,14 @@ const styles = StyleSheet.create({
 		left: 0,
 		right: 0,
 	},
-	backButton: {
-		marginLeft: 16,
+	overlayRow: {
+		flexDirection: "row",
+		alignItems: "flex-start",
+		paddingHorizontal: 16,
 		marginTop: 8,
+		gap: 10,
+	},
+	backButton: {
 		width: 40,
 		height: 40,
 		borderRadius: 20,
@@ -1044,21 +1053,20 @@ const styles = StyleSheet.create({
 
 	/* トリップ情報カード */
 	tripCard: {
-		marginHorizontal: 16,
-		marginTop: 12,
+		flex: 1,
 		backgroundColor: Colors.white,
-		borderRadius: 16,
-		padding: 16,
+		borderRadius: 14,
+		padding: 12,
 		shadowColor: Colors.black,
 		shadowOffset: { width: 0, height: 2 },
 		shadowOpacity: 0.1,
 		shadowRadius: 8,
 		elevation: 4,
-		borderWidth: 1,
-		borderColor: Colors.grayLighter,
+		borderWidth: 1.5,
+		borderColor: "#4A7C59",
 	},
 	tripTitle: {
-		fontSize: 20,
+		fontSize: 16,
 		fontWeight: "bold",
 		color: Colors.black,
 	},
