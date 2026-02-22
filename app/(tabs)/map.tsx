@@ -37,6 +37,11 @@ const CARD_WIDTH = SCREEN_WIDTH * 0.52;
 const CARD_SPACING = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_SPACING;
 const SIDE_PADDING = (SCREEN_WIDTH - CARD_WIDTH) / 2;
+
+const TRIP_CARD_WIDTH = SCREEN_WIDTH * 0.72;
+const TRIP_CARD_SPACING = 12;
+const TRIP_SNAP_INTERVAL = TRIP_CARD_WIDTH + TRIP_CARD_SPACING;
+const TRIP_SIDE_PADDING = (SCREEN_WIDTH - TRIP_CARD_WIDTH) / 2;
 const PHOTO_FOCUS_DELTA = 0.08;
 const SNAPSHOT_PHOTO_PIN_SIZE = 96;
 const SNAPSHOT_PHOTO_PIN_IMAGE_SIZE = 82;
@@ -90,6 +95,10 @@ export default function MapScreen() {
 		previewUrl: string;
 	} | null>(null);
 	const tripThemePlayRequestIdRef = useRef(0);
+	const tripListRef = useRef<FlatList<Trip>>(null);
+	const tripScrollX = useRef(new Animated.Value(0)).current;
+	const isTripScrollProgrammatic = useRef(false);
+	const isTripDeselected = useRef(false);
 
 	const [trips, setTrips] = useState<Trip[]>([]);
 	const [photos, setPhotos] = useState<Photo[]>([]);
@@ -468,17 +477,60 @@ export default function MapScreen() {
 		}, [fetchMapData]),
 	);
 
+	const focusTripOnMap = useCallback(
+		(tripId: string, duration = 500) => {
+			const tripPhotos = photosByTrip[tripId] ?? [];
+			if (tripPhotos.length === 0) return;
+			const coords = tripPhotos
+				.filter((p) => p.lat != null && p.lng != null)
+				.map((p) => ({
+					latitude: p.lat as number,
+					longitude: p.lng as number,
+				}));
+			if (coords.length === 0) return;
+			if (coords.length === 1) {
+				mapRef.current?.animateToRegion(
+					{
+						latitude: coords[0].latitude,
+						longitude: coords[0].longitude,
+						latitudeDelta: PHOTO_FOCUS_DELTA * 3,
+						longitudeDelta: PHOTO_FOCUS_DELTA * 3,
+					},
+					duration,
+				);
+			} else {
+				mapRef.current?.fitToCoordinates(coords, {
+					animated: true,
+					edgePadding: { top: 140, right: 60, bottom: 200, left: 60 },
+				});
+			}
+		},
+		[photosByTrip],
+	);
+
 	const handleTripPinPress = useCallback(
 		(tripId: string) => {
 			if (selectedTripId === tripId) {
+				isTripDeselected.current = true;
 				setSelectedTripId(null);
 				setFocusedPhotoId(null);
 			} else {
+				isTripDeselected.current = false;
 				setSelectedTripId(tripId);
 				setFocusedPhotoId(null);
+				focusTripOnMap(tripId);
+				const idx = filteredTrips.findIndex((t) => t.id === tripId);
+				if (idx >= 0) {
+					isTripScrollProgrammatic.current = true;
+					tripListRef.current?.scrollToIndex({
+						index: idx,
+						animated: true,
+						viewPosition: 0.5,
+					});
+				}
 			}
 		},
-		[selectedTripId],
+		[selectedTripId, filteredTrips, focusTripOnMap],
 	);
 
 	const focusPhotoOnMap = useCallback((photo: Photo, duration = 400) => {
@@ -745,6 +797,124 @@ export default function MapScreen() {
 		[scrollX, handlePhotoCardPress],
 	);
 
+	const handleTripCarouselScrollEnd = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			if (isTripScrollProgrammatic.current) {
+				isTripScrollProgrammatic.current = false;
+				return;
+			}
+			if (isTripDeselected.current) return;
+			const offsetX = event.nativeEvent.contentOffset.x;
+			const rawIndex = Math.round(offsetX / TRIP_SNAP_INTERVAL);
+			const idx = Math.min(Math.max(rawIndex, 0), filteredTrips.length - 1);
+			const trip = filteredTrips[idx];
+			if (trip) {
+				setSelectedTripId(trip.id);
+				setFocusedPhotoId(null);
+				focusTripOnMap(trip.id);
+			}
+		},
+		[filteredTrips, focusTripOnMap],
+	);
+
+	const handleTripCarouselScrollBeginDrag = useCallback(() => {
+		isTripDeselected.current = false;
+	}, []);
+
+	const renderTripCard = useCallback(
+		({ item, index }: { item: Trip; index: number }) => {
+			const inputRange = [
+				(index - 1) * TRIP_SNAP_INTERVAL,
+				index * TRIP_SNAP_INTERVAL,
+				(index + 1) * TRIP_SNAP_INTERVAL,
+			];
+			const scale = tripScrollX.interpolate({
+				inputRange,
+				outputRange: [0.88, 1, 0.88],
+				extrapolate: "clamp",
+			});
+			const opacity = tripScrollX.interpolate({
+				inputRange,
+				outputRange: [0.5, 1, 0.5],
+				extrapolate: "clamp",
+			});
+			const color = tripColorMap[item.id] ?? Colors.primary;
+			const photoCount = (photosByTrip[item.id] ?? []).length;
+			const isSelected = item.id === selectedTripId;
+			return (
+				<Animated.View
+					style={{
+						width: TRIP_CARD_WIDTH,
+						transform: [{ scale }],
+						opacity: isSelected ? 1 : opacity,
+					}}
+				>
+					<View
+						style={[
+							styles.tripCarouselCard,
+							isSelected && styles.tripCarouselCardSelected,
+						]}
+					>
+						<View style={styles.tripCarouselRow}>
+							<View
+								style={[styles.tripCarouselDot, { backgroundColor: color }]}
+							/>
+							<Text style={styles.tripCarouselTitle} numberOfLines={1}>
+								{item.title ?? "無題"}
+							</Text>
+							{photoCount > 0 && (
+								<View
+									style={[styles.tripCarouselBadge, { backgroundColor: color }]}
+								>
+									<Text style={styles.tripCarouselBadgeText}>{photoCount}</Text>
+								</View>
+							)}
+							{isSelected && (
+								<TouchableOpacity
+									style={styles.tripCarouselAction}
+									onPress={handleTripSnapshot}
+									activeOpacity={0.8}
+									hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+								>
+									<Ionicons
+										name="camera-outline"
+										size={14}
+										color={Colors.white}
+									/>
+								</TouchableOpacity>
+							)}
+							<TouchableOpacity
+								style={styles.tripCarouselClose}
+								onPress={() => {
+									isTripDeselected.current = true;
+									setSelectedTripId(null);
+									setFocusedPhotoId(null);
+								}}
+								hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+							>
+								<Ionicons name="close" size={16} color={Colors.white} />
+							</TouchableOpacity>
+						</View>
+						<View style={styles.tripCarouselMeta}>
+							<Ionicons name="calendar-outline" size={12} color={Colors.gray} />
+							<Text style={styles.tripCarouselMetaText}>
+								{item.start_date ?? ""}
+								{item.end_date ? ` 〜 ${item.end_date}` : ""}
+							</Text>
+						</View>
+					</View>
+				</Animated.View>
+			);
+		},
+		[
+			tripScrollX,
+			tripColorMap,
+			photosByTrip,
+			selectedTripId,
+			handleTripSnapshot,
+		],
+	);
+
 	if (loading) {
 		return <SplashScreen />;
 	}
@@ -920,115 +1090,78 @@ export default function MapScreen() {
 				</View>
 			)}
 
-			{/* 上部オーバーレイ */}
-			{selectedTrip && !isTripSnapshotMode ? (
-				<View style={[styles.tripInfoOverlay, { top: insets.top + 12 }]}>
-					<View style={styles.tripInfoRow}>
-						<View
-							style={[
-								styles.tripInfoDot,
-								{
-									backgroundColor:
-										tripColorMap[selectedTrip.id] ?? Colors.primary,
-								},
-							]}
-						/>
-						<Text style={styles.tripInfoTitle} numberOfLines={1}>
-							{selectedTrip.title ?? "無題"}
-						</Text>
-						<TouchableOpacity
-							style={styles.tripInfoAction}
-							onPress={handleTripSnapshot}
-							activeOpacity={0.8}
-							hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-						>
-							<Ionicons name="camera-outline" size={16} color={Colors.white} />
-						</TouchableOpacity>
-						<TouchableOpacity
-							style={styles.tripInfoClose}
-							onPress={() => {
-								setSelectedTripId(null);
-								setFocusedPhotoId(null);
-							}}
-							hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-						>
-							<Ionicons name="close" size={18} color={Colors.white} />
-						</TouchableOpacity>
-					</View>
-					<View style={styles.tripInfoMeta}>
-						<Ionicons name="calendar-outline" size={13} color={Colors.gray} />
-						<Text style={styles.tripInfoMetaText}>
-							{selectedTrip.start_date ?? ""}
-							{selectedTrip.end_date ? ` 〜 ${selectedTrip.end_date}` : ""}
-						</Text>
-					</View>
-					{selectedMembers.length > 0 && (
-						<View style={styles.tripInfoMeta}>
-							<Ionicons name="people-outline" size={13} color={Colors.gray} />
-							{selectedMembers.slice(0, 3).map((member, i) => (
-								<View
-									key={member.id}
-									style={[styles.memberAvatar, i > 0 && { marginLeft: -6 }]}
-								>
-									{member.avatar_url ? (
-										<Image
-											source={{ uri: member.avatar_url }}
-											style={styles.memberAvatarImage}
-										/>
-									) : (
-										<Ionicons name="person" size={10} color={Colors.gray} />
-									)}
-								</View>
-							))}
-							<Text style={styles.tripInfoMetaText}>
-								{selectedMembers
-									.slice(0, 2)
-									.map((m) => m.profile_name ?? m.username)
-									.join("・")}
-								{selectedMembers.length > 2
-									? ` 他${selectedMembers.length - 2}名`
-									: ""}
-							</Text>
-						</View>
-					)}
-				</View>
-			) : !isTripSnapshotMode ? (
-				filteredTrips.length > 0 && (
-					<ScrollView
+			{/* 上部: 旅行選択時はカルーセル、未選択時はチップリスト */}
+			{selectedTrip && !isTripSnapshotMode && filteredTrips.length > 0 && (
+				<View style={[styles.tripCarouselWrap, { top: insets.top + 8 }]}>
+					<Animated.FlatList
+						ref={tripListRef}
+						data={filteredTrips}
+						keyExtractor={(item) => item.id}
+						renderItem={renderTripCard}
 						horizontal
 						showsHorizontalScrollIndicator={false}
-						style={[styles.tripChipList, { top: insets.top + 8 }]}
-						contentContainerStyle={styles.tripChipListContent}
-					>
-						{filteredTrips.map((trip) => {
-							const color = tripColorMap[trip.id] ?? Colors.primary;
-							const photoCount = (photosByTrip[trip.id] ?? []).length;
-							return (
-								<TouchableOpacity
-									key={trip.id}
-									style={styles.tripChip}
-									onPress={() => handleTripPinPress(trip.id)}
-									activeOpacity={0.8}
-								>
-									<View
-										style={[styles.tripChipDot, { backgroundColor: color }]}
-									/>
-									<Text style={styles.tripChipTitle} numberOfLines={1}>
-										{trip.title ?? "無題"}
-									</Text>
-									{photoCount > 0 && (
-										<View
-											style={[styles.tripChipBadge, { backgroundColor: color }]}
-										>
-											<Text style={styles.tripChipBadgeText}>{photoCount}</Text>
-										</View>
-									)}
-								</TouchableOpacity>
-							);
+						contentContainerStyle={{
+							paddingHorizontal: TRIP_SIDE_PADDING,
+						}}
+						ItemSeparatorComponent={() => (
+							<View style={{ width: TRIP_CARD_SPACING }} />
+						)}
+						snapToInterval={TRIP_SNAP_INTERVAL}
+						decelerationRate="fast"
+						initialScrollIndex={Math.max(
+							filteredTrips.findIndex((t) => t.id === selectedTripId),
+							0,
+						)}
+						onScroll={Animated.event(
+							[{ nativeEvent: { contentOffset: { x: tripScrollX } } }],
+							{ useNativeDriver: true },
+						)}
+						scrollEventThrottle={16}
+						onMomentumScrollEnd={handleTripCarouselScrollEnd}
+						onScrollBeginDrag={handleTripCarouselScrollBeginDrag}
+						getItemLayout={(_, index) => ({
+							length: TRIP_SNAP_INTERVAL,
+							offset: TRIP_SNAP_INTERVAL * index,
+							index,
 						})}
-					</ScrollView>
-				)
-			) : null}
+					/>
+				</View>
+			)}
+			{!selectedTrip && !isTripSnapshotMode && filteredTrips.length > 0 && (
+				<ScrollView
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					style={[styles.tripChipList, { top: insets.top + 8 }]}
+					contentContainerStyle={styles.tripChipListContent}
+				>
+					{filteredTrips.map((trip) => {
+						const color = tripColorMap[trip.id] ?? Colors.primary;
+						const photoCount = (photosByTrip[trip.id] ?? []).length;
+						return (
+							<TouchableOpacity
+								key={trip.id}
+								style={styles.tripChip}
+								onPress={() => handleTripPinPress(trip.id)}
+								activeOpacity={0.8}
+							>
+								<View
+									style={[styles.tripChipDot, { backgroundColor: color }]}
+								/>
+								<Text style={styles.tripChipTitle} numberOfLines={1}>
+									{trip.title ?? "無題"}
+								</Text>
+								{photoCount > 0 && (
+									<View
+										style={[styles.tripChipBadge, { backgroundColor: color }]}
+									>
+										<Text style={styles.tripChipBadgeText}>{photoCount}</Text>
+									</View>
+								)}
+							</TouchableOpacity>
+						);
+					})}
+				</ScrollView>
+			)}
 
 			{/* 全旅行表示ボタン（旅行未選択時のみ表示） */}
 			{!selectedTrip && trips.length > 0 && !isTripSnapshotMode && (
@@ -1306,7 +1439,7 @@ const styles = StyleSheet.create({
 		borderRadius: SNAPSHOT_PHOTO_PIN_IMAGE_SIZE / 2,
 	},
 
-	/* 旅行チップリスト（通常状態） */
+	/* 旅行チップリスト（全体表示時） */
 	tripChipList: {
 		position: "absolute",
 		left: 0,
@@ -1358,17 +1491,19 @@ const styles = StyleSheet.create({
 		color: Colors.white,
 	},
 
-	/* 上部オーバーレイ（旅行選択時） */
-	tripInfoOverlay: {
+	/* 旅行カルーセル（旅行選択時） */
+	tripCarouselWrap: {
 		position: "absolute",
-		top: 12,
-		left: 12,
-		right: 12,
+		left: 0,
+		right: 0,
+		zIndex: 10,
+	},
+	tripCarouselCard: {
 		backgroundColor: "rgba(255,255,255,0.95)",
 		borderRadius: 14,
 		paddingHorizontal: 14,
-		paddingVertical: 12,
-		gap: 6,
+		paddingVertical: 10,
+		gap: 4,
 		borderWidth: 1.5,
 		borderColor: "#4A7C59",
 		shadowColor: Colors.black,
@@ -1377,64 +1512,67 @@ const styles = StyleSheet.create({
 		shadowRadius: 8,
 		elevation: 5,
 	},
-	tripInfoRow: {
+	tripCarouselCardSelected: {
+		backgroundColor: Colors.white,
+		shadowOpacity: 0.25,
+		elevation: 8,
+	},
+	tripCarouselRow: {
 		flexDirection: "row",
 		alignItems: "center",
-		gap: 8,
+		gap: 6,
 	},
-	tripInfoClose: {
-		width: 26,
-		height: 26,
-		borderRadius: 13,
-		backgroundColor: "rgba(0,0,0,0.25)",
-		justifyContent: "center",
-		alignItems: "center",
-		marginLeft: 10,
-	},
-	tripInfoAction: {
-		width: 30,
-		height: 30,
-		borderRadius: 15,
-		backgroundColor: Colors.primary,
-		justifyContent: "center",
-		alignItems: "center",
-	},
-	tripInfoDot: {
+	tripCarouselDot: {
 		width: 10,
 		height: 10,
 		borderRadius: 5,
 		flexShrink: 0,
 	},
-	tripInfoTitle: {
-		fontSize: 17,
+	tripCarouselTitle: {
+		fontSize: 15,
 		fontWeight: "700",
 		color: Colors.black,
 		flex: 1,
 	},
-	tripInfoMeta: {
-		flexDirection: "row",
-		alignItems: "center",
-		gap: 6,
+	tripCarouselBadge: {
+		minWidth: 18,
+		height: 18,
+		borderRadius: 9,
+		justifyContent: "center" as const,
+		alignItems: "center" as const,
+		paddingHorizontal: 4,
 	},
-	tripInfoMetaText: {
-		fontSize: 13,
+	tripCarouselBadgeText: {
+		fontSize: 10,
+		fontWeight: "700" as const,
+		color: Colors.white,
+	},
+	tripCarouselAction: {
+		width: 28,
+		height: 28,
+		borderRadius: 14,
+		backgroundColor: Colors.primary,
+		justifyContent: "center" as const,
+		alignItems: "center" as const,
+	},
+	tripCarouselClose: {
+		width: 24,
+		height: 24,
+		borderRadius: 12,
+		backgroundColor: "rgba(0,0,0,0.25)",
+		justifyContent: "center" as const,
+		alignItems: "center" as const,
+		marginLeft: 4,
+	},
+	tripCarouselMeta: {
+		flexDirection: "row" as const,
+		alignItems: "center" as const,
+		gap: 4,
+		marginLeft: 16,
+	},
+	tripCarouselMetaText: {
+		fontSize: 12,
 		color: Colors.gray,
-	},
-	memberAvatar: {
-		width: 20,
-		height: 20,
-		borderRadius: 10,
-		backgroundColor: Colors.grayLighter,
-		justifyContent: "center",
-		alignItems: "center",
-		borderWidth: 1.5,
-		borderColor: Colors.white,
-		overflow: "hidden",
-	},
-	memberAvatarImage: {
-		width: 20,
-		height: 20,
-		borderRadius: 10,
 	},
 
 	/* 下部パネル */
