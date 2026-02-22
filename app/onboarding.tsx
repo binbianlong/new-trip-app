@@ -13,6 +13,7 @@ import {
 	StyleSheet,
 	Text,
 	TextInput,
+	TouchableOpacity,
 	TouchableWithoutFeedback,
 	View,
 } from "react-native";
@@ -26,6 +27,7 @@ export default function OnboardingScreen() {
 	const router = useRouter();
 	const [image, setImage] = useState<string | null>(null);
 	const [imageError, setImageError] = useState(false);
+	const [loading, setLoading] = useState(false);
 
 	const {
 		control,
@@ -78,8 +80,10 @@ export default function OnboardingScreen() {
 			Alert.alert("エラー", "プロフィール写真を選択してください。");
 			return;
 		}
+		setLoading(true);
 		console.log("保存データ:", { ...data, profileImage: image });
 		router.replace("/(tabs)");
+		setLoading(false);
 	};
 
 	return (
@@ -90,13 +94,12 @@ export default function OnboardingScreen() {
 			>
 				<View style={styles.header}>
 					<Pressable onPress={() => router.back()} style={styles.backButton}>
-						<Text style={styles.backIcon}>←</Text>
+						<Ionicons name="arrow-back" size={24} color="#4A7C59" />
 					</Pressable>
-					<Text style={styles.header_1}>あしあとへようこそ！</Text>
+					<Text style={styles.headerTitle}>プロフィール設定</Text>
 				</View>
 
-				<View style={styles.card}>
-					<Text style={styles.sectionTitle}>☆ユーザー情報入力☆</Text>
+				<View style={styles.formArea}>
 					<View style={styles.avatarSection}>
 						<Pressable
 							style={[styles.avatarCircle, imageError && styles.avatarError]}
@@ -105,51 +108,72 @@ export default function OnboardingScreen() {
 							{image ? (
 								<Image source={{ uri: image }} style={styles.avatarImage} />
 							) : (
-								<Ionicons name="camera-outline" size={48} color="#FFF" />
+								<Ionicons name="camera-outline" size={40} color="#fff" />
 							)}
 						</Pressable>
+						<Text style={styles.avatarHint}>写真を選択</Text>
 						{imageError && (
-							<Text style={styles.errorTextSmall}>写真を選択してください</Text>
+							<Text style={styles.errorText}>写真を選択してください</Text>
 						)}
 					</View>
 
-					<Text style={styles.label}>プロフィールネーム</Text>
-					<Controller
-						control={control}
-						rules={{ required: "入力してください" }}
-						render={({ field: { onChange, value } }) => (
-							<TextInput
-								style={[styles.input, errors.profileName && styles.inputError]}
-								onChangeText={onChange}
-								value={value}
-								placeholder="表示名を入力"
-								placeholderTextColor="#A9A9A9"
-							/>
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>プロフィールネーム</Text>
+						<Controller
+							control={control}
+							rules={{ required: "入力してください" }}
+							render={({ field: { onChange, value } }) => (
+								<TextInput
+									style={[
+										styles.input,
+										errors.profileName && styles.inputError,
+									]}
+									onChangeText={onChange}
+									value={value}
+									placeholder="表示名を入力"
+									placeholderTextColor="#999"
+								/>
+							)}
+							name="profileName"
+						/>
+						{errors.profileName && (
+							<Text style={styles.errorText}>{errors.profileName.message}</Text>
 						)}
-						name="profileName"
-					/>
+					</View>
 
-					<Text style={styles.label}>ユーザーネーム</Text>
-					<Controller
-						control={control}
-						rules={{ required: "入力してください" }}
-						render={({ field: { onChange, value } }) => (
-							<TextInput
-								style={[styles.input, errors.userName && styles.inputError]}
-								onChangeText={onChange}
-								value={value}
-								placeholder="ユーザーIDを入力"
-								placeholderTextColor="#A9A9A9"
-								autoCapitalize="none"
-							/>
+					<View style={styles.inputGroup}>
+						<Text style={styles.label}>ユーザーネーム</Text>
+						<Controller
+							control={control}
+							rules={{ required: "入力してください" }}
+							render={({ field: { onChange, value } }) => (
+								<TextInput
+									style={[styles.input, errors.userName && styles.inputError]}
+									onChangeText={onChange}
+									value={value}
+									placeholder="ユーザーIDを入力"
+									placeholderTextColor="#999"
+									autoCapitalize="none"
+								/>
+							)}
+							name="userName"
+						/>
+						{errors.userName && (
+							<Text style={styles.errorText}>{errors.userName.message}</Text>
 						)}
-						name="userName"
-					/>
+					</View>
+
+					<TouchableOpacity
+						style={[styles.button, loading && styles.buttonDisabled]}
+						onPress={handleSubmit(onSubmit)}
+						disabled={loading}
+						activeOpacity={0.8}
+					>
+						<Text style={styles.buttonText}>
+							{loading ? "保存中..." : "保存する"}
+						</Text>
+					</TouchableOpacity>
 				</View>
-
-				<Pressable style={styles.submitButton} onPress={handleSubmit(onSubmit)}>
-					<Text style={styles.submitButtonText}>完了</Text>
-				</Pressable>
 			</KeyboardAvoidingView>
 		</TouchableWithoutFeedback>
 	);
@@ -165,56 +189,36 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		marginTop: 70,
-		marginBottom: 20,
+		marginBottom: 30,
 		height: 40,
-		position: "relative",
 	},
 	backButton: {
-		position: "absolute",
-		left: 0,
-		padding: 10,
-		zIndex: 10,
+		padding: 8,
+		marginRight: 12,
 	},
-	backIcon: {
-		fontSize: 24,
-		color: "#333",
-	},
-	header_1: {
-		flex: 1,
+	headerTitle: {
 		fontSize: 22,
-		fontFamily: "Keifont",
-		color: "#333",
-		textAlign: "center",
+		fontWeight: "bold",
+		color: "#4A7C59",
 	},
-	// 追加した見出しのスタイル
-	sectionTitle: {
-		fontSize: 18,
-		fontFamily: "Keifont",
-		color: "#666",
-		textAlign: "center",
-		marginBottom: 10,
-	},
-	card: {
-		backgroundColor: "#E2F9E5",
-		borderRadius: 24,
-		padding: 24,
-		paddingTop: 30,
-		marginBottom: 40,
+	formArea: {
+		width: "100%",
+		paddingHorizontal: 0,
 	},
 	avatarSection: {
 		alignItems: "center",
-		marginBottom: 25,
+		marginBottom: 28,
 	},
 	avatarCircle: {
-		width: 90,
-		height: 90,
-		borderRadius: 45,
-		backgroundColor: "#4A674D",
+		width: 100,
+		height: 100,
+		borderRadius: 50,
+		backgroundColor: "#4A7C59",
 		justifyContent: "center",
 		alignItems: "center",
 		overflow: "hidden",
-		borderWidth: 2,
-		borderColor: "transparent",
+		borderWidth: 3,
+		borderColor: "#4A7C59",
 	},
 	avatarError: {
 		borderColor: "#FF6B6B",
@@ -223,47 +227,57 @@ const styles = StyleSheet.create({
 		width: "100%",
 		height: "100%",
 	},
-	errorTextSmall: {
-		color: "#FF6B6B",
-		fontSize: 12,
-		marginTop: 5,
-		fontFamily: "Keifont",
+	avatarHint: {
+		marginTop: 8,
+		fontSize: 13,
+		color: "#4A7C59",
+		fontWeight: "600",
+	},
+	inputGroup: {
+		marginBottom: 16,
 	},
 	label: {
-		fontSize: 16,
-		fontFamily: "Keifont",
-		color: "#4A674D",
-		marginBottom: 8,
+		fontSize: 14,
+		fontWeight: "bold",
+		color: "#4A7C59",
+		marginBottom: 6,
 	},
 	input: {
-		backgroundColor: "#FFFFFF",
-		borderRadius: 30,
-		height: 50,
-		paddingHorizontal: 20,
+		borderWidth: 1,
+		borderColor: "#4A7C59",
+		borderRadius: 8,
+		padding: 12,
 		fontSize: 16,
-		marginBottom: 20,
-		shadowColor: "#000",
-		shadowOffset: { width: 0, height: 1 },
-		shadowOpacity: 0.1,
-		shadowRadius: 2,
-		elevation: 2,
+		backgroundColor: "#fff",
 	},
 	inputError: {
 		borderColor: "#FF6B6B",
-		borderWidth: 1,
 	},
-	submitButton: {
-		width: "60%",
-		alignSelf: "center",
-		borderWidth: 2,
-		borderColor: "#4A674D",
-		borderRadius: 30,
+	errorText: {
+		color: "#FF6B6B",
+		fontSize: 12,
+		marginTop: 4,
+	},
+	button: {
+		backgroundColor: "#C6FFCA",
+		borderRadius: 8,
 		paddingVertical: 14,
 		alignItems: "center",
+		marginTop: 20,
+		borderWidth: 1,
+		borderColor: "#4A7C59",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 2,
 	},
-	submitButtonText: {
-		color: "#4A674D",
+	buttonDisabled: {
+		opacity: 0.6,
+	},
+	buttonText: {
+		color: "#4A7C59",
 		fontSize: 18,
-		fontFamily: "Keifont",
+		fontWeight: "bold",
 	},
 });
