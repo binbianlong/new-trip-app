@@ -17,6 +17,7 @@ import {
 	Modal,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
+	ScrollView,
 	Share,
 	StyleSheet,
 	Text,
@@ -1056,8 +1057,8 @@ export default function MapScreen() {
 				</View>
 			)}
 
-			{/* 上部: 旅行カルーセル */}
-			{!isTripSnapshotMode && filteredTrips.length > 0 && (
+			{/* 上部: 旅行選択時はカルーセル、未選択時はチップリスト */}
+			{selectedTrip && !isTripSnapshotMode && filteredTrips.length > 0 && (
 				<View style={[styles.tripCarouselWrap, { top: insets.top + 8 }]}>
 					<Animated.FlatList
 						ref={tripListRef}
@@ -1088,6 +1089,41 @@ export default function MapScreen() {
 						})}
 					/>
 				</View>
+			)}
+			{!selectedTrip && !isTripSnapshotMode && filteredTrips.length > 0 && (
+				<ScrollView
+					horizontal
+					showsHorizontalScrollIndicator={false}
+					style={[styles.tripChipList, { top: insets.top + 8 }]}
+					contentContainerStyle={styles.tripChipListContent}
+				>
+					{filteredTrips.map((trip) => {
+						const color = tripColorMap[trip.id] ?? Colors.primary;
+						const photoCount = (photosByTrip[trip.id] ?? []).length;
+						return (
+							<TouchableOpacity
+								key={trip.id}
+								style={styles.tripChip}
+								onPress={() => handleTripPinPress(trip.id)}
+								activeOpacity={0.8}
+							>
+								<View
+									style={[styles.tripChipDot, { backgroundColor: color }]}
+								/>
+								<Text style={styles.tripChipTitle} numberOfLines={1}>
+									{trip.title ?? "無題"}
+								</Text>
+								{photoCount > 0 && (
+									<View
+										style={[styles.tripChipBadge, { backgroundColor: color }]}
+									>
+										<Text style={styles.tripChipBadgeText}>{photoCount}</Text>
+									</View>
+								)}
+							</TouchableOpacity>
+						);
+					})}
+				</ScrollView>
 			)}
 
 			{/* 全旅行表示ボタン（旅行未選択時のみ表示） */}
@@ -1366,7 +1402,59 @@ const styles = StyleSheet.create({
 		borderRadius: SNAPSHOT_PHOTO_PIN_IMAGE_SIZE / 2,
 	},
 
-	/* 旅行カルーセル */
+	/* 旅行チップリスト（全体表示時） */
+	tripChipList: {
+		position: "absolute",
+		left: 0,
+		right: 0,
+		zIndex: 10,
+	},
+	tripChipListContent: {
+		paddingHorizontal: 12,
+		gap: 8,
+	},
+	tripChip: {
+		flexDirection: "row",
+		alignItems: "center",
+		backgroundColor: "rgba(255,255,255,0.95)",
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		borderRadius: 20,
+		gap: 6,
+		borderWidth: 1.5,
+		borderColor: "#4A7C59",
+		shadowColor: Colors.black,
+		shadowOffset: { width: 0, height: 1 },
+		shadowOpacity: 0.15,
+		shadowRadius: 4,
+		elevation: 3,
+	},
+	tripChipDot: {
+		width: 8,
+		height: 8,
+		borderRadius: 4,
+	},
+	tripChipTitle: {
+		fontSize: 13,
+		fontWeight: "600",
+		color: Colors.black,
+		maxWidth: 120,
+	},
+	tripChipBadge: {
+		minWidth: 18,
+		height: 18,
+		borderRadius: 9,
+		justifyContent: "center",
+		alignItems: "center",
+		paddingHorizontal: 4,
+	},
+	tripChipBadgeText: {
+		fontSize: 10,
+		fontWeight: "700",
+		color: Colors.white,
+	},
+
+	/* 旅行カルーセル（旅行選択時） */
 	tripCarouselWrap: {
 		position: "absolute",
 		left: 0,
