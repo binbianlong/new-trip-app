@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
 	},
 	content: {
 		paddingHorizontal: 20,
-		paddingTop: 70,
+		paddingTop: 100,
 		paddingBottom: 40,
 	},
 	title: {
@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
 		paddingVertical: 14,
 		alignItems: "center",
 		justifyContent: "center",
-		marginTop: 24,
+		marginTop: 40,
 		borderWidth: 1,
 		borderColor: "#4A7C59",
 		shadowColor: "#000",
