@@ -272,7 +272,7 @@ export default function ProfileSetupScreen() {
 								onBlur={onBlur}
 								value={value}
 								placeholder="表示名を入力"
-								placeholderTextColor={Colors.grayLight}
+								placeholderTextColor="#999"
 							/>
 						)}
 					/>
@@ -294,7 +294,7 @@ export default function ProfileSetupScreen() {
 								onBlur={onBlur}
 								value={value}
 								placeholder="ユーザーIDを入力"
-								placeholderTextColor={Colors.grayLight}
+								placeholderTextColor="#999"
 								autoCapitalize="none"
 							/>
 						)}
@@ -303,21 +303,19 @@ export default function ProfileSetupScreen() {
 						<Text style={styles.errorText}>{errors.userName.message}</Text>
 					)}
 				</View>
-			</ScrollView>
 
-			<View style={styles.footer}>
 				<Pressable
 					style={[styles.saveButton, isSaving && styles.disabledButton]}
 					onPress={handleSubmit(onSave)}
 					disabled={isSaving}
 				>
 					{isSaving ? (
-						<ActivityIndicator size="small" color={Colors.white} />
+						<ActivityIndicator size="small" color="#4A7C59" />
 					) : (
 						<Text style={styles.saveButtonText}>保存する</Text>
 					)}
 				</Pressable>
-			</View>
+			</ScrollView>
 		</KeyboardAvoidingView>
 	);
 }
@@ -325,27 +323,27 @@ export default function ProfileSetupScreen() {
 const styles = StyleSheet.create({
 	container: {
 		flex: 1,
-		backgroundColor: Colors.white,
+		backgroundColor: "#FFFFFF",
 	},
 	loadingContainer: {
 		flex: 1,
 		justifyContent: "center",
 		alignItems: "center",
-		backgroundColor: Colors.white,
+		backgroundColor: "#FFFFFF",
 	},
 	content: {
-		paddingHorizontal: 24,
-		paddingTop: 64,
-		paddingBottom: 24,
+		paddingHorizontal: 20,
+		paddingTop: 100,
+		paddingBottom: 40,
 	},
 	title: {
-		fontSize: 28,
-		fontWeight: "700",
-		color: Colors.black,
+		fontSize: 24,
+		fontWeight: "bold",
+		color: "#333333",
 	},
 	subtitle: {
 		fontSize: 14,
-		color: Colors.gray,
+		color: "#666666",
 		marginTop: 8,
 		marginBottom: 24,
 		lineHeight: 20,
@@ -354,16 +352,16 @@ const styles = StyleSheet.create({
 		width: 120,
 		height: 120,
 		borderRadius: 60,
-		backgroundColor: Colors.grayLighter,
+		backgroundColor: "#FFFFFF",
 		alignSelf: "center",
 		justifyContent: "center",
 		alignItems: "center",
 		overflow: "hidden",
-		borderWidth: 2,
-		borderColor: "transparent",
+		borderWidth: 3,
+		borderColor: "#4A7C59",
 	},
 	avatarButtonError: {
-		borderColor: Colors.danger,
+		borderColor: "#FF6B6B",
 	},
 	avatarImage: {
 		width: "100%",
@@ -372,53 +370,54 @@ const styles = StyleSheet.create({
 	avatarPlaceholder: {
 		fontSize: 14,
 		fontWeight: "600",
-		color: Colors.gray,
+		color: "#4A7C59",
 	},
 	field: {
-		marginTop: 20,
+		marginTop: 16,
 	},
 	label: {
 		fontSize: 14,
-		fontWeight: "600",
-		color: Colors.black,
-		marginBottom: 8,
+		fontWeight: "bold",
+		color: "#4A7C59",
+		marginBottom: 6,
 	},
 	input: {
 		borderWidth: 1,
-		borderColor: Colors.grayLight,
-		borderRadius: 12,
-		padding: 14,
+		borderColor: "#4A7C59",
+		borderRadius: 8,
+		padding: 12,
 		fontSize: 16,
-		color: Colors.black,
+		backgroundColor: "#fff",
 	},
 	inputError: {
-		borderColor: Colors.danger,
+		borderColor: "#FF6B6B",
 	},
 	errorText: {
 		fontSize: 12,
-		color: Colors.danger,
-		marginTop: 8,
-	},
-	footer: {
-		paddingHorizontal: 24,
-		paddingBottom: 32,
-		paddingTop: 12,
-		borderTopWidth: 1,
-		borderTopColor: Colors.grayLighter,
+		color: "#FF6B6B",
+		marginTop: 4,
 	},
 	saveButton: {
-		backgroundColor: Colors.primary,
-		borderRadius: 14,
+		backgroundColor: "#C6FFCA",
+		borderRadius: 8,
 		paddingVertical: 14,
 		alignItems: "center",
 		justifyContent: "center",
+		marginTop: 40,
+		borderWidth: 1,
+		borderColor: "#4A7C59",
+		shadowColor: "#000",
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 2,
 	},
 	saveButtonText: {
-		fontSize: 16,
-		fontWeight: "700",
-		color: Colors.white,
+		fontSize: 18,
+		fontWeight: "bold",
+		color: "#4A7C59",
 	},
 	disabledButton: {
-		opacity: 0.65,
+		opacity: 0.6,
 	},
 });
