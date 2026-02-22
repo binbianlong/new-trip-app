@@ -477,6 +477,37 @@ export default function MapScreen() {
 		}, [fetchMapData]),
 	);
 
+	const focusTripOnMap = useCallback(
+		(tripId: string, duration = 500) => {
+			const tripPhotos = photosByTrip[tripId] ?? [];
+			if (tripPhotos.length === 0) return;
+			const coords = tripPhotos
+				.filter((p) => p.lat != null && p.lng != null)
+				.map((p) => ({
+					latitude: p.lat as number,
+					longitude: p.lng as number,
+				}));
+			if (coords.length === 0) return;
+			if (coords.length === 1) {
+				mapRef.current?.animateToRegion(
+					{
+						latitude: coords[0].latitude,
+						longitude: coords[0].longitude,
+						latitudeDelta: PHOTO_FOCUS_DELTA * 3,
+						longitudeDelta: PHOTO_FOCUS_DELTA * 3,
+					},
+					duration,
+				);
+			} else {
+				mapRef.current?.fitToCoordinates(coords, {
+					animated: true,
+					edgePadding: { top: 140, right: 60, bottom: 200, left: 60 },
+				});
+			}
+		},
+		[photosByTrip],
+	);
+
 	const handleTripPinPress = useCallback(
 		(tripId: string) => {
 			if (selectedTripId === tripId) {
@@ -487,6 +518,7 @@ export default function MapScreen() {
 				isTripDeselected.current = false;
 				setSelectedTripId(tripId);
 				setFocusedPhotoId(null);
+				focusTripOnMap(tripId);
 				const idx = filteredTrips.findIndex((t) => t.id === tripId);
 				if (idx >= 0) {
 					isTripScrollProgrammatic.current = true;
@@ -498,7 +530,7 @@ export default function MapScreen() {
 				}
 			}
 		},
-		[selectedTripId, filteredTrips],
+		[selectedTripId, filteredTrips, focusTripOnMap],
 	);
 
 	const focusPhotoOnMap = useCallback((photo: Photo, duration = 400) => {
@@ -776,12 +808,13 @@ export default function MapScreen() {
 			const rawIndex = Math.round(offsetX / TRIP_SNAP_INTERVAL);
 			const idx = Math.min(Math.max(rawIndex, 0), filteredTrips.length - 1);
 			const trip = filteredTrips[idx];
-			if (trip && trip.id !== selectedTripId) {
+			if (trip) {
 				setSelectedTripId(trip.id);
 				setFocusedPhotoId(null);
+				focusTripOnMap(trip.id);
 			}
 		},
-		[filteredTrips, selectedTripId],
+		[filteredTrips, focusTripOnMap],
 	);
 
 	const handleTripCarouselScrollBeginDrag = useCallback(() => {
